@@ -67,6 +67,7 @@ below; and the source details beside live stats. The layout is remembered.
 ## Build
 
 ```sh
+git clone https://github.com/martythedev-tech/encodr && cd encodr
 bin/build        # build/encodr
 bin/test         # unit and end-to-end tests, offscreen
 bin/install      # package and install, so it shows in the launcher

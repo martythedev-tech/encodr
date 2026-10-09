@@ -2,6 +2,7 @@ pkgname=encodr
 pkgver=0.1.0
 pkgrel=1
 pkgdesc='Convert video and audio with ffmpeg, with every detail of the job on screen'
+url='https://github.com/martythedev-tech/encodr'
 arch=('x86_64' 'aarch64')
 license=('MIT')
 depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'xdg-desktop-portal' 'ffmpeg' 'libnotify')
