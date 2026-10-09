@@ -17,7 +17,8 @@ QByteArray readFile(const QString &path) {
 }
 
 Telemetry::Telemetry(const QString &sysRoot, const QString &procRoot, QObject *parent)
-    : QObject(parent), m_sys(sysRoot.isEmpty() ? "/sys" : sysRoot), m_proc(procRoot.isEmpty() ? "/proc" : procRoot) {
+    : QObject(parent), m_sys(sysRoot.isEmpty() ? "/sys" : sysRoot), m_proc(procRoot.isEmpty() ? "/proc" : procRoot),
+      m_cycles(m_sys, m_proc) {
     m_coreCount = QThread::idealThreadCount();
     const long ticks = sysconf(_SC_CLK_TCK);
     if (ticks > 0)
@@ -30,6 +31,7 @@ Telemetry::Telemetry(const QString &sysRoot, const QString &procRoot, QObject *p
 
 void Telemetry::setProcess(qint64 pid) {
     m_pid = pid;
+    m_cycles.setProcess(pid);
     m_prevProcTicks = 0;
     m_prevProcAt = 0;
     m_processCpu = 0;
@@ -104,21 +106,48 @@ void Telemetry::sampleProcess() {
 
 void Telemetry::sampleClocks() {
     m_clocks.clear();
-    m_throttled = false;
+    const auto measured = m_cycles.sample();
+    double ranMhz = 0, topMhz = 0;
+    bool requestedLow = false;
+
     QDir dir(m_sys + "/devices/system/cpu/cpufreq");
     const auto policies = dir.entryList({"policy*"}, QDir::Dirs, QDir::Name);
     for (const auto &policy : policies) {
         const QString base = dir.filePath(policy);
-        const double cur = readFile(base + "/scaling_cur_freq").toDouble() / 1000.0;
+        double cur = readFile(base + "/scaling_cur_freq").toDouble() / 1000.0;
         const double max = readFile(base + "/cpuinfo_max_freq").toDouble() / 1000.0;
         const QString cpus = QString::fromUtf8(readFile(base + "/related_cpus"));
         if (max <= 0)
             continue;
-        m_clocks.append(QVariantMap{{"name", policy}, {"cpus", cpus}, {"mhz", cur}, {"maxMhz", max}});
-        // Only a busy machine running well below its top clock is throttling;
-        // an idle one is just saving power.
-        if (m_cpuTotal > 60 && cur < max * 0.85)
-            m_throttled = true;
+        // Prefer the clock the encoder actually got on these cores over the
+        // one that was asked for.
+        bool real = false;
+        const QList<int> policyCpus = CycleCounter::parseCpuList(cpus);
+        for (const auto &cluster : measured) {
+            if (cluster.mhz <= 0 || policyCpus.isEmpty() || !cluster.cpus.contains(policyCpus.first()))
+                continue;
+            cur = std::min(cluster.mhz, max);
+            real = true;
+            ranMhz += cur * cluster.seconds;
+            topMhz += max * cluster.seconds;
+        }
+        const bool low = m_cpuTotal > 80 && cur < max * 0.85;
+        if (low && !real)
+            requestedLow = true;
+        m_clocks.append(QVariantMap{{"name", policy}, {"cpus", cpus}, {"mhz", cur}, {"maxMhz", max},
+                                    {"measured", real}, {"low", low}});
+    }
+
+    m_clocksMeasured = topMhz > 0;
+    m_clockShare = m_clocksMeasured ? ranMhz / topMhz : 0;
+    // Only a busy machine running well below its top clock is throttling; an
+    // idle one is just saving power. A little hysteresis keeps the warning
+    // from flickering around the line.
+    if (m_clocksMeasured) {
+        const double limit = m_throttled ? 0.9 : 0.85;
+        m_throttled = m_cpuTotal > 80 && m_clockShare < limit;
+    } else {
+        m_throttled = requestedLow;
     }
 }
 

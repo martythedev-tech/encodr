@@ -55,6 +55,9 @@ class Job : public QObject {
     Q_PROPERTY(qint64 duplicatedFrames READ duplicatedFrames NOTIFY statsChanged)
     Q_PROPERTY(double energyWh READ energyWh NOTIFY statsChanged)
     Q_PROPERTY(double peakCpu READ peakCpu NOTIFY statsChanged)
+    Q_PROPERTY(double clockShare READ clockShare NOTIFY statsChanged)
+    Q_PROPERTY(double lowestClockShare READ lowestClockShare NOTIFY statsChanged)
+    Q_PROPERTY(int heatSeconds READ heatSeconds NOTIFY statsChanged)
     Q_PROPERTY(qint64 freeSpace READ freeSpace NOTIFY statsChanged)
     Q_PROPERTY(QVariantMap history READ history NOTIFY statsChanged)
     Q_PROPERTY(QString previewOut READ previewOut CONSTANT)
@@ -107,6 +110,9 @@ public:
     qint64 duplicatedFrames() const { return m_last.dupFrames; }
     double energyWh() const { return m_energyWh; }
     double peakCpu() const { return m_peakCpu; }
+    double clockShare() const { return m_clockShare; }
+    double lowestClockShare() const { return m_lowestClockShare; }
+    int heatSeconds() const { return m_heatSeconds; }
     qint64 freeSpace() const { return m_freeSpace; }
     QVariantMap history() const;
     QString previewOut() const { return m_previewOut; }
@@ -127,7 +133,9 @@ public:
     void cancel();
     void reset();
     // Called by the backend once a second with the machine's readings.
-    void recordSystem(double processCpu, double watts);
+    // Called once a second while converting. `clockShare` is how fast the
+    // encoder's cores really ran against their top speed (0 = unknown).
+    void recordSystem(double processCpu, double watts, double clockShare = 0, bool throttled = false);
 
     // The path ffmpeg writes to; renamed over the real name only on success,
     // so a failed or cancelled run never leaves a half file behind.
@@ -184,6 +192,9 @@ private:
     double m_recentBitrate = 0;
     double m_energyWh = 0;
     double m_peakCpu = 0;
+    double m_clockShare = 0;
+    double m_lowestClockShare = 0;
+    int m_heatSeconds = 0;
     qint64 m_freeSpace = -1;
     double m_lastHistoryAt = -1;
 

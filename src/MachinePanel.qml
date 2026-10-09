@@ -27,7 +27,7 @@ Rectangle {
                 radius: 4
                 implicitWidth: throttleText.implicitWidth + 12
                 implicitHeight: 20
-                Text { id: throttleText; anchors.centerIn: parent; text: "SLOWED BY HEAT"; color: theme.background; font.pixelSize: 10; font.bold: true }
+                Text { id: throttleText; anchors.centerIn: parent; text: tel.clocksMeasured ? "SLOWED BY HEAT · " + Math.round(tel.clockShare * 100) + "% SPEED" : "SLOWED BY HEAT"; color: theme.background; font.pixelSize: 10; font.bold: true }
             }
             Text { text: "CPU " + Format.number(tel.cpuTotal, 0) + "%"; color: theme.foreground; font.pixelSize: 13; font.bold: true }
         }
@@ -83,8 +83,8 @@ Rectangle {
                     Text {
                         required property var modelData
                         text: "CPUs " + modelData.cpus + ": " + Format.number(modelData.mhz / 1000, 2) + " / "
-                              + Format.number(modelData.maxMhz / 1000, 2) + " GHz"
-                        color: modelData.mhz < modelData.maxMhz * 0.85 && tel.cpuTotal > 60 ? theme.warn : theme.foreground
+                              + Format.number(modelData.maxMhz / 1000, 2) + " GHz" + (modelData.measured ? "  (measured)" : "")
+                        color: modelData.low ? theme.warn : theme.foreground
                         font.pixelSize: 12
                     }
                 }

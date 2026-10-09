@@ -389,7 +389,7 @@ void Backend::onTick() {
             m_watchedPid = pid;
             m_telemetry->setProcess(pid);
         }
-        job->recordSystem(m_telemetry->processCpu(), m_telemetry->systemWatts());
+        job->recordSystem(m_telemetry->processCpu(), m_telemetry->systemWatts(), m_telemetry->clockShare(), m_telemetry->throttled());
     }
     if (hasActiveWork())
         emit queueChanged();

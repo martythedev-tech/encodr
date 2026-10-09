@@ -23,9 +23,11 @@ Drop in files, pick a preset, press Space.
   size so far and the projected final size against free space, quantizer,
   dropped frames, encoder CPU, energy used, and live graphs of speed, fps,
   bitrate, CPU and power.
-- **The machine doing the work.** Load on every core, clock speeds against
-  their maximum (it warns when heat slows the CPU), temperatures and power
-  draw from whatever sensors the kernel exposes.
+- **The machine doing the work.** Load on every core, the clock speed the
+  encoder really gets (measured from its CPU cycles, because the kernel only
+  reports the speed it asked for), a warning when heat slows the CPU and how
+  long it did, temperatures and power draw from whatever sensors the kernel
+  exposes.
 - **Pause and resume** a conversion exactly where it is. Sleep and lid-close
   suspend are blocked while converting (not while paused, so a paused job can
   wait through sleep), and a notification says when it's done.

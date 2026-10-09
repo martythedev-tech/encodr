@@ -170,6 +170,18 @@ ScrollView {
                        detail: root.live ? "of all " + tel.coreCount + " cores · peak " + Format.number(job.peakCpu, 0) + "%" : job && job.peakCpu > 0 ? "peak" : "" }
             StatTile { label: "Energy used"; value: job && job.energyWh > 0 ? Format.number(job.energyWh, job.energyWh < 10 ? 2 : 1) + " Wh" : "—"
                        detail: tel.systemWatts > 0 ? "whole computer now " + Format.number(tel.systemWatts, 1) + " W" : "" }
+            StatTile {
+                label: "CPU clock"
+                value: root.live && tel.clocksMeasured ? Math.round(tel.clockShare * 100) + "%"
+                       : job && job.lowestClockShare > 0 ? Math.round(job.lowestClockShare * 100) + "%" : "—"
+                valueColor: (root.live && tel.throttled) ? theme.bad : theme.foreground
+                detail: {
+                    if (!job || job.lowestClockShare <= 0)
+                        return "of top speed, measured";
+                    const heat = job.heatSeconds > 0 ? "slowed by heat for " + Format.words(job.heatSeconds) : "never slowed by heat";
+                    return (root.live ? "lowest " + Math.round(job.lowestClockShare * 100) + "% · " : "lowest of top speed · ") + heat;
+                }
+            }
             StatTile { label: "Quantizer"; value: job && job.quantizer >= 0 ? Format.number(job.quantizer, 1) : "—"
                        detail: (job && (job.droppedFrames > 0 || job.duplicatedFrames > 0))
                                ? job.droppedFrames + " dropped · " + job.duplicatedFrames + " duplicated frames"

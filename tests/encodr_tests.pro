@@ -6,6 +6,6 @@ TEMPLATE = app
 INCLUDEPATH += ../src
 
 HEADERS += ../src/backend.h ../src/filepicker.h ../src/job.h ../src/mediainfo.h ../src/preset.h \
-           ../src/progress.h ../src/telemetry.h ../src/theme.h
+           ../src/progress.h ../src/telemetry.h ../src/cyclecounter.h ../src/theme.h
 SOURCES += encodr_tests.cpp ../src/backend.cpp ../src/job.cpp ../src/mediainfo.cpp ../src/preset.cpp \
-           ../src/progress.cpp ../src/telemetry.cpp ../src/theme.cpp
+           ../src/progress.cpp ../src/telemetry.cpp ../src/cyclecounter.cpp ../src/theme.cpp

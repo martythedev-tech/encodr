@@ -11,6 +11,10 @@
 #include "preset.h"
 #include "progress.h"
 #include "telemetry.h"
+#include "cyclecounter.h"
+
+#include <atomic>
+#include <thread>
 #include "theme.h"
 
 namespace {
@@ -200,16 +204,50 @@ private slots:
         writeFile(sys.filePath("devices/system/cpu/cpufreq/policy0/related_cpus"), "0 1\n");
 
         Telemetry t(sys.path(), proc.path());
-        writeFile(proc.filePath("stat"), "cpu  200 0 200 900 0 0 0 0 0 0\ncpu0 100 0 100 400 0 0 0 0 0 0\ncpu1 50 0 50 500 0 0 0 0 0 0\n");
+        writeFile(proc.filePath("stat"), "cpu  280 0 280 820 0 0 0 0 0 0\ncpu0 100 0 100 400 0 0 0 0 0 0\ncpu1 50 0 50 500 0 0 0 0 0 0\n");
         t.sample();
-        QVERIFY(qAbs(t.cpuTotal() - 200.0 / 3) < 0.01);
+        QVERIFY(qAbs(t.cpuTotal() - 36000.0 / 380) < 0.01);
         QCOMPARE(t.cores().size(), 2);
         QCOMPARE(t.cores()[0].toDouble(), 100.0);
         QCOMPARE(t.cores()[1].toDouble(), 0.0);
         QVERIFY(qAbs(t.systemWatts() - 25.500322) < 1e-6);
         QVERIFY(qAbs(t.hottest() - 54.459) < 1e-6);
         QCOMPARE(t.clocks().size(), 1);
-        QVERIFY(t.throttled());   // busy (66%) and 2.4 of 3.2 GHz
+        QVERIFY(t.throttled());   // busy (95%) and 2.4 of 3.2 GHz
+        QVERIFY(!t.clocksMeasured());   // no PMUs in the fake machine
+    }
+
+    void cpuListsParse() {
+        QCOMPARE(CycleCounter::parseCpuList("4-7"), (QList<int>{4, 5, 6, 7}));
+        QCOMPARE(CycleCounter::parseCpuList("0 1 2 3"), (QList<int>{0, 1, 2, 3}));
+        QCOMPARE(CycleCounter::parseCpuList("0-1,6"), (QList<int>{0, 1, 6}));
+        QVERIFY(CycleCounter::parseCpuList("").isEmpty());
+    }
+
+    void cycleCounterMeasuresARealThread() {
+        CycleCounter counter;
+        if (!counter.available())
+            QSKIP("No CPU cycle counters on this machine");
+        counter.setProcess(QCoreApplication::applicationPid());
+        counter.sample();    // opens the counters
+        std::atomic<bool> stop = false;
+        std::thread spin([&] {
+            volatile double x = 0;
+            while (!stop)
+                x = x + 0.5;
+        });
+        // The spinning thread only exists now, so the next sample picks it up.
+        counter.sample();
+        QThread::msleep(400);
+        const auto clusters = counter.sample();
+        stop = true;
+        spin.join();
+        double best = 0;
+        for (const auto &c : clusters)
+            best = std::max(best, c.mhz);
+        if (best == 0)
+            QSKIP("The kernel refused perf events (perf_event_paranoid?)");
+        QVERIFY2(best > 300 && best < 6000, qPrintable(QString::number(best)));
     }
 
     void themeFallsBack() {

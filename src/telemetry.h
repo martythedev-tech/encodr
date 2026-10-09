@@ -5,10 +5,13 @@
 #include <QVariantList>
 #include <QVector>
 
+#include "cyclecounter.h"
+
 // Samples the machine once a second while it's being watched: CPU load per
 // core, the encoder process's own CPU use, clock speeds against their maximum
-// (to spot thermal throttling), and whatever temperature and power sensors
-// the kernel exposes. Every source is optional; missing ones simply don't show.
+// (measured from the encoder's CPU cycles where the kernel allows, to spot
+// thermal throttling), and whatever temperature and power sensors the kernel
+// exposes. Every source is optional; missing ones simply don't show.
 class Telemetry : public QObject {
     Q_OBJECT
     Q_PROPERTY(double cpuTotal READ cpuTotal NOTIFY updated)
@@ -16,6 +19,8 @@ class Telemetry : public QObject {
     Q_PROPERTY(double processCpu READ processCpu NOTIFY updated)
     Q_PROPERTY(QVariantList clocks READ clocks NOTIFY updated)
     Q_PROPERTY(bool throttled READ throttled NOTIFY updated)
+    Q_PROPERTY(double clockShare READ clockShare NOTIFY updated)
+    Q_PROPERTY(bool clocksMeasured READ clocksMeasured NOTIFY updated)
     Q_PROPERTY(QVariantList temperatures READ temperatures NOTIFY updated)
     Q_PROPERTY(QVariantList power READ power NOTIFY updated)
     Q_PROPERTY(double hottest READ hottest NOTIFY updated)
@@ -30,6 +35,10 @@ public:
     double processCpu() const { return m_processCpu; }
     QVariantList clocks() const { return m_clocks; }
     bool throttled() const { return m_throttled; }
+    // How fast the encoder's cores really ran against their top speed, 0-1
+    // (0 when nothing was measured).
+    double clockShare() const { return m_clockShare; }
+    bool clocksMeasured() const { return m_clocksMeasured; }
     QVariantList temperatures() const { return m_temperatures; }
     QVariantList power() const { return m_power; }
     double hottest() const { return m_hottest; }
@@ -65,6 +74,9 @@ private:
     double m_processCpu = 0;
     QVariantList m_clocks;
     bool m_throttled = false;
+    double m_clockShare = 0;
+    bool m_clocksMeasured = false;
+    CycleCounter m_cycles;
     QVariantList m_temperatures;
     QVariantList m_power;
     double m_hottest = 0;

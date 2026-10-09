@@ -236,6 +236,8 @@ bool Job::start() {
     m_errors.clear();
     m_recentSpeed = m_recentFps = m_recentBitrate = 0;
     m_energyWh = m_peakCpu = 0;
+    m_clockShare = m_lowestClockShare = 0;
+    m_heatSeconds = 0;
     m_lastHistoryAt = -1;
     m_speedHistory.clear();
     m_fpsHistory.clear();
@@ -362,9 +364,14 @@ void Job::pushHistory(QVariantList &list, double value) {
     list = merged;
 }
 
-void Job::recordSystem(double processCpu, double watts) {
+void Job::recordSystem(double processCpu, double watts, double clockShare, bool throttled) {
     if (m_state != "running")
         return;
+    m_clockShare = clockShare;
+    if (clockShare > 0)
+        m_lowestClockShare = m_lowestClockShare > 0 ? std::min(m_lowestClockShare, clockShare) : clockShare;
+    if (throttled)
+        ++m_heatSeconds;
     m_pendingCpu = processCpu;
     m_pendingWatts = watts;
     m_peakCpu = std::max(m_peakCpu, processCpu);
