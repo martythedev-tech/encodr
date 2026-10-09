@@ -30,23 +30,36 @@ Rectangle {
         anchors.centerIn: parent
         width: Math.min(620, parent.width - 40)
         implicitHeight: list.implicitHeight + 44
-        radius: 12
+        radius: 8
         color: theme.surface
-        border.color: theme.raised
+        border.width: 1
+        border.color: theme.border
 
         ColumnLayout {
             id: list
             anchors.fill: parent
-            anchors.margins: 22
-            spacing: 9
-            Text { text: "Keyboard shortcuts"; color: theme.foreground; font.pixelSize: 18; font.bold: true; Layout.bottomMargin: 6 }
+            anchors.margins: 20
+            spacing: 7
+            Text { text: "Keyboard shortcuts"; color: theme.foreground; font.pixelSize: 15; font.weight: Font.DemiBold; Layout.bottomMargin: 8 }
             Repeater {
                 model: root.keys
                 RowLayout {
                     required property var modelData
                     spacing: 16
-                    Text { text: modelData[0]; color: theme.accent; font.pixelSize: 13; font.bold: true; Layout.preferredWidth: 210 }
-                    Text { text: modelData[1]; color: theme.foreground; font.pixelSize: 13; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                    Item {
+                        Layout.preferredWidth: 200
+                        implicitHeight: 20
+                        Rectangle {
+                            implicitWidth: keyText.implicitWidth + 12
+                            height: 20
+                            radius: 3
+                            color: theme.background
+                            border.width: 1
+                            border.color: theme.border
+                            Text { id: keyText; anchors.centerIn: parent; text: modelData[0]; color: theme.foreground; font.pixelSize: 11; font.family: theme.mono }
+                        }
+                    }
+                    Text { text: modelData[1]; color: theme.dim; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
                 }
             }
         }

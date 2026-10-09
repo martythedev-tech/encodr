@@ -16,8 +16,8 @@ ScrollView {
         property color valueColor: theme.foreground
         Layout.fillWidth: true
         spacing: 12
-        Text { text: parent.label; color: theme.dim; font.pixelSize: 13; Layout.preferredWidth: 140 }
-        Text { text: parent.value || "—"; color: parent.valueColor; font.pixelSize: 13; Layout.fillWidth: true; wrapMode: Text.Wrap }
+        Text { text: parent.label; color: theme.dim; font.pixelSize: 12; Layout.preferredWidth: 140 }
+        Text { text: parent.value || "—"; color: parent.valueColor; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
     }
 
     component Section: Rectangle {
@@ -25,13 +25,15 @@ ScrollView {
         property string title
         Layout.fillWidth: true
         color: theme.surface
-        radius: 10
-        implicitHeight: inner.implicitHeight + 46
-        Text { x: 14; y: 12; text: parent.title.toUpperCase(); color: theme.dim; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1 }
+        radius: 6
+        border.width: 1
+        border.color: theme.border
+        implicitHeight: inner.implicitHeight + 50
+        Text { x: 14; y: 13; text: parent.title.toUpperCase(); color: theme.dim; font.pixelSize: 11; font.weight: Font.DemiBold; font.letterSpacing: 0.8 }
         ColumnLayout {
             id: inner
             x: 14
-            y: 34
+            y: 36
             width: parent.width - 28
             spacing: 6
         }
@@ -39,7 +41,7 @@ ScrollView {
 
     ColumnLayout {
         width: root.availableWidth
-        spacing: 14
+        spacing: 10
 
         Text {
             visible: job !== null && job.state === "probing"
@@ -61,22 +63,25 @@ ScrollView {
                         Layout.alignment: Qt.AlignTop
                         Layout.topMargin: 2
                         implicitWidth: badge.implicitWidth + 12
-                        implicitHeight: 20
-                        radius: 4
-                        color: modelData.level === "fix" ? theme.good : modelData.level === "warn" ? theme.warn : theme.raised
+                        implicitHeight: 18
+                        radius: 3
+                        color: "transparent"
+                        border.width: 1
+                        border.color: modelData.level === "fix" ? theme.good : modelData.level === "warn" ? theme.warn : theme.border
                         Text {
                             id: badge
                             anchors.centerIn: parent
                             text: modelData.level === "fix" ? "FIXED" : modelData.level === "warn" ? "NOTE" : "INFO"
-                            color: modelData.level === "info" ? theme.foreground : theme.background
+                            color: modelData.level === "fix" ? theme.good : modelData.level === "warn" ? theme.warn : theme.dim
                             font.pixelSize: 10
-                            font.bold: true
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: 0.5
                         }
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 1
-                        Text { text: modelData.title; color: theme.foreground; font.pixelSize: 13; font.bold: true }
+                        Text { text: modelData.title; color: theme.foreground; font.pixelSize: 13; font.weight: Font.Medium }
                         Text { text: modelData.detail; color: theme.dim; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
                     }
                 }
@@ -129,7 +134,7 @@ ScrollView {
                               + (modelData.channels === 1 ? "mono" : modelData.channels === 2 ? "stereo" : modelData.channels + " channels")
                               + (modelData.bitrate ? " · " + Format.bps(modelData.bitrate) : "")
                         color: theme.foreground
-                        font.pixelSize: 13
+                        font.pixelSize: 12
                     }
                     // Level meter: average loudness and loudest peak, -60 to 0 dBFS.
                     RowLayout {
@@ -138,7 +143,7 @@ ScrollView {
                         spacing: 10
                         Rectangle {
                             Layout.fillWidth: true
-                            implicitHeight: 10
+                            implicitHeight: 6
                             radius: 3
                             color: theme.raised
                             Rectangle {
@@ -157,7 +162,8 @@ ScrollView {
                         Text {
                             text: "avg " + Format.number(modelData.meanDb, 1) + " dB · peak " + Format.number(modelData.peakDb, 1) + " dB"
                             color: theme.dim
-                            font.pixelSize: 12
+                            font.pixelSize: 11
+                            font.family: theme.mono
                         }
                     }
                 }
@@ -173,9 +179,8 @@ ScrollView {
         Section {
             title: "Full technical report (mediainfo)"
             visible: job !== null && job.mediainfoReport !== ""
-            Button {
+            UiButton {
                 text: reportText.visible ? "Hide" : "Show"
-                flat: true
                 onClicked: reportText.visible = !reportText.visible
             }
             TextEdit {
@@ -187,7 +192,7 @@ ScrollView {
                 selectByMouse: true
                 wrapMode: TextEdit.Wrap
                 color: theme.dim
-                font.family: "monospace"
+                font.family: theme.mono
                 font.pixelSize: 11
             }
         }

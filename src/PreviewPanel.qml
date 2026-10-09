@@ -14,7 +14,9 @@ Rectangle {
     readonly property real frameHeight: Math.min(440, (mode === "both" ? (width - 38) / 2 : width - 28) * 9 / 16)
 
     color: theme.surface
-    radius: 10
+    radius: 6
+    border.width: 1
+    border.color: theme.border
     implicitHeight: body.implicitHeight + 28
     visible: job !== null && job.info.hasVideo === true
 
@@ -31,37 +33,33 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Text { text: "PREVIEW"; color: theme.dim; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1 }
-            Rectangle {
+            Text { text: "PREVIEW"; color: theme.dim; font.pixelSize: 11; font.weight: Font.DemiBold; font.letterSpacing: 0.8 }
+            Row {
                 visible: root.running && root.live
-                radius: 4
-                color: theme.bad
-                implicitWidth: liveText.implicitWidth + 12
-                implicitHeight: 18
-                Text { id: liveText; anchors.centerIn: parent; text: "LIVE"; color: theme.background; font.pixelSize: 10; font.bold: true }
-                // A blink once a second rather than a smooth pulse: an endless
-                // animation makes Qt redraw the whole window every frame, which
-                // took CPU away from ffmpeg for the whole conversion.
-                Timer {
-                    interval: 1000
-                    repeat: true
-                    running: root.running && root.live
-                    onTriggered: parent.opacity = parent.opacity < 1 ? 1 : 0.55
-                    onRunningChanged: parent.opacity = 1
+                spacing: 5
+                Rectangle {
+                    id: liveDot
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 6; height: 6; radius: 3
+                    color: theme.bad
+                    // A blink once a second rather than a smooth pulse: an endless
+                    // animation makes Qt redraw the whole window every frame, which
+                    // took CPU away from ffmpeg for the whole conversion.
+                    Timer {
+                        interval: 1000
+                        repeat: true
+                        running: root.running && root.live
+                        onTriggered: liveDot.opacity = liveDot.opacity < 1 ? 1 : 0.3
+                        onRunningChanged: liveDot.opacity = 1
+                    }
                 }
+                Text { text: "LIVE"; color: theme.bad; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.8 }
             }
             Item { Layout.fillWidth: true }
-            Repeater {
-                model: [{ id: "output", text: "Output" }, { id: "source", text: "Source" }, { id: "both", text: "Side by side" }]
-                Button {
-                    required property var modelData
-                    text: modelData.text
-                    flat: root.mode !== modelData.id
-                    highlighted: root.mode === modelData.id
-                    font.pixelSize: 12
-                    implicitHeight: 34
-                    onClicked: root.mode = modelData.id
-                }
+            Segmented {
+                options: [{ id: "output", text: "Output" }, { id: "source", text: "Source" }, { id: "both", text: "Side by side" }]
+                current: root.mode
+                onPicked: function (id) { root.mode = id; }
             }
         }
 
@@ -80,7 +78,7 @@ Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: root.frameHeight
                         color: "black"
-                        radius: 6
+                        radius: 4
                         clip: true
                         FrameView {
                             id: frame

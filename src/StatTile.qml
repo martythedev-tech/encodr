@@ -8,21 +8,27 @@ Rectangle {
     property string detail: ""
     property color valueColor: theme.foreground
 
-    color: theme.raised
-    radius: 8
-    implicitHeight: 74
+    color: theme.surface
+    radius: 6
+    border.width: 1
+    border.color: theme.border
+    implicitHeight: 66
     Layout.fillWidth: true
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 10
-        spacing: 2
-        Text { text: root.label; color: theme.dim; font.pixelSize: 11; font.capitalization: Font.AllUppercase; font.letterSpacing: 0.6 }
+        anchors.leftMargin: 12
+        anchors.rightMargin: 12
+        anchors.topMargin: 9
+        anchors.bottomMargin: 9
+        spacing: 1
+        Text { text: root.label.toUpperCase(); color: theme.dim; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.7 }
         Text {
             text: root.value
             color: root.valueColor
-            font.pixelSize: 20
-            font.bold: true
+            font.pixelSize: 18
+            font.weight: Font.Medium
+            font.features: { "tnum": 1 }
             elide: Text.ElideRight
             Layout.fillWidth: true
         }

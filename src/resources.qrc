@@ -10,6 +10,11 @@
         <file alias="HelpOverlay.qml">HelpOverlay.qml</file>
         <file alias="PreviewPanel.qml">PreviewPanel.qml</file>
         <file alias="FrameView.qml">FrameView.qml</file>
+        <file alias="UiButton.qml">UiButton.qml</file>
+        <file alias="Panel.qml">Panel.qml</file>
+        <file alias="Segmented.qml">Segmented.qml</file>
+        <file alias="TabStrip.qml">TabStrip.qml</file>
+        <file alias="Meter.qml">Meter.qml</file>
         <file alias="Format.js">Format.js</file>
     </qresource>
 </RCC>

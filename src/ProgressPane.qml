@@ -18,63 +18,68 @@ ScrollView {
 
     ColumnLayout {
         width: root.availableWidth
-        spacing: 14
+        spacing: 10
 
         // Headline: what's happening and when it will be done.
-        Rectangle {
-            Layout.fillWidth: true
-            color: theme.surface
-            radius: 10
-            implicitHeight: headline.implicitHeight + 28
+        Panel {
+            spacing: 10
 
-            ColumnLayout {
-                id: headline
-                anchors.fill: parent
-                anchors.margins: 14
-                spacing: 8
-
-                RowLayout {
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+                ColumnLayout {
+                    spacing: 3
                     Layout.fillWidth: true
-                    ColumnLayout {
-                        spacing: 2
-                        Layout.fillWidth: true
-                        Text {
-                            text: job ? Format.stateLabel(job.state).toUpperCase() : ""
-                            color: !job ? theme.dim : job.state === "failed" ? theme.bad : job.state === "done" ? theme.good
-                                 : job.state === "paused" ? theme.warn : theme.accent
-                            font.pixelSize: 12
-                            font.bold: true
-                            font.letterSpacing: 1
+                    RowLayout {
+                        spacing: 6
+                        Rectangle {
+                            implicitWidth: 6; implicitHeight: 6; radius: 3
+                            color: stateLabel.color
                         }
                         Text {
-                            text: job ? job.fileName : ""
-                            color: theme.foreground
-                            font.pixelSize: 20
-                            font.bold: true
-                            elide: Text.ElideMiddle
-                            Layout.fillWidth: true
+                            id: stateLabel
+                            text: job ? Format.stateLabel(job.state).toUpperCase() : ""
+                            color: !job ? theme.dim : job.state === "failed" ? theme.bad : job.state === "done" ? theme.good
+                                 : job.state === "paused" ? theme.warn : job.state === "running" ? theme.accent : theme.dim
+                            font.pixelSize: 10
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: 0.8
                         }
                     }
                     Text {
-                        text: job ? Format.number(job.percent, job.percent > 0 && job.percent < 100 ? 1 : 0) + "%" : ""
+                        text: job ? job.fileName : ""
                         color: theme.foreground
-                        font.pixelSize: 40
-                        font.bold: true
+                        font.pixelSize: 16
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideMiddle
+                        Layout.fillWidth: true
                     }
                 }
-
-                ProgressBar {
-                    Layout.fillWidth: true
-                    from: 0
-                    to: 100
-                    value: job ? job.percent : 0
+                Text {
+                    text: job ? Format.number(job.percent, job.percent > 0 && job.percent < 100 ? 1 : 0) + "%" : ""
+                    color: theme.foreground
+                    font.pixelSize: 30
+                    font.weight: Font.Medium
+                    font.features: { "tnum": 1 }
+                    Layout.alignment: Qt.AlignBottom
                 }
+            }
 
+            Meter {
+                Layout.fillWidth: true
+                implicitHeight: 4
+                value: job ? job.percent : 0
+                barColor: stateLabel.color
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
                 Text {
                     Layout.fillWidth: true
                     wrapMode: Text.Wrap
                     color: job && job.state === "failed" ? theme.bad : theme.dim
-                    font.pixelSize: 13
+                    font.pixelSize: 12
                     text: {
                         if (!job)
                             return "";
@@ -86,47 +91,43 @@ ScrollView {
                             return job.message + " · took " + Format.words(job.elapsed) + " · " + Format.bytes(job.projectedSize)
                                    + " (" + Math.round(100 * job.projectedSize / Math.max(1, info.size)) + "% of the original)";
                         if (job.state === "ready")
-                            return "Waiting in the queue. Press Space to start.";
+                            return "Waiting in the queue.";
                         return job.message;
                     }
                 }
-
                 Flow {
-                    Layout.fillWidth: true
-                    spacing: 8
-                    Button {
-                        visible: root.live
-                        text: job && job.state === "paused" ? "Resume  (Space)" : "Pause  (Space)"
-                        onClicked: backend.toggleQueue()
-                    }
-                    Button {
-                        visible: root.live
-                        text: "Stop  (C)"
-                        flat: true
-                        onClicked: stopDialog.open()
-                    }
-                    Button {
+                    spacing: 6
+                    layoutDirection: Qt.RightToLeft
+                    Layout.maximumWidth: root.availableWidth * 0.6
+                    UiButton {
                         visible: job && job.state === "ready" && !backend.running
-                        text: "Start queue  (Space)"
-                        highlighted: true
+                        text: "Start queue"; hint: "Space"; kind: "primary"
                         onClicked: backend.startQueue()
                     }
-                    Button {
+                    UiButton {
+                        visible: root.live
+                        text: job && job.state === "paused" ? "Resume" : "Pause"; hint: "Space"
+                        kind: job && job.state === "paused" ? "primary" : "default"
+                        onClicked: backend.toggleQueue()
+                    }
+                    UiButton {
+                        visible: root.live
+                        text: "Stop"; hint: "C"; kind: "ghost"; danger: true
+                        onClicked: stopDialog.open()
+                    }
+                    UiButton {
                         visible: root.done
-                        text: "Play  (Enter)"
-                        highlighted: true
+                        text: "Play"; hint: "Enter"; kind: "primary"
                         onClicked: backend.openOutput(root.jobIndex)
                     }
-                    Button {
+                    UiButton {
                         visible: root.done
-                        text: "Show in folder  (F)"
-                        flat: true
+                        text: "Show in folder"; hint: "F"
                         onClicked: backend.revealOutput(root.jobIndex)
                     }
-                    Button {
+                    UiButton {
                         visible: job && (job.state === "failed" || job.state === "cancelled" || job.state === "done")
-                        text: "Convert again  (R)"
-                        flat: true
+                        text: "Convert again"; hint: "R"; kind: "ghost"
                         onClicked: backend.retryJob(root.jobIndex)
                     }
                 }
@@ -139,8 +140,8 @@ ScrollView {
         GridLayout {
             Layout.fillWidth: true
             columns: root.width > 980 ? 4 : root.width > 640 ? 3 : 2
-            columnSpacing: 10
-            rowSpacing: 10
+            columnSpacing: 8
+            rowSpacing: 8
 
             StatTile { label: "Elapsed"; value: job ? Format.duration(job.elapsed) : "—"
                        detail: job && job.startedAt && !isNaN(job.startedAt.getTime()) ? "started " + Format.clock(job.startedAt) : "" }
@@ -156,15 +157,19 @@ ScrollView {
                        detail: "of the source's running time" }
             StatTile { label: "Bitrate"; value: job ? Format.bitrate(root.live ? job.bitrateKbps : job.averageBitrateKbps) : "—"
                        detail: job && job.averageBitrateKbps > 0 ? "average " + Format.bitrate(job.averageBitrateKbps) + " · source " + Format.bps(info.bitrate) : "" }
-            StatTile { label: "Size so far"; value: job ? Format.bytes(job.size) : "—"
-                       detail: job && job.freeSpace > 0 ? Format.bytes(job.freeSpace) + " free on the output drive" : "" }
             StatTile {
-                label: root.done ? "Final size" : "Projected size"
-                value: job ? Format.bytes(job.projectedSize) : "—"
-                valueColor: job && job.freeSpace > 0 && job.projectedSize - job.size > job.freeSpace ? theme.bad : theme.foreground
-                detail: job && job.projectedSize > 0 && info.size > 0
-                        ? (job.freeSpace > 0 && job.projectedSize - job.size > job.freeSpace ? "won't fit on the drive!" : Math.round(100 * job.projectedSize / info.size) + "% of the original " + Format.bytes(info.size))
-                        : ""
+                readonly property bool wontFit: job !== null && job.freeSpace > 0 && job.projectedSize - job.size > job.freeSpace
+                label: root.done ? "Final size" : "Size"
+                value: job ? Format.bytes(root.done ? job.projectedSize : job.size) : "—"
+                valueColor: wontFit ? theme.bad : theme.foreground
+                detail: {
+                    if (!job || job.projectedSize <= 0 || info.size <= 0)
+                        return job && job.freeSpace > 0 ? Format.bytes(job.freeSpace) + " free on the output drive" : "";
+                    if (wontFit)
+                        return "→ " + Format.bytes(job.projectedSize) + " won't fit on the drive!";
+                    const share = Math.round(100 * job.projectedSize / info.size) + "% of the original";
+                    return root.done ? share + " " + Format.bytes(info.size) : "→ " + Format.bytes(job.projectedSize) + " projected · " + share;
+                }
             }
             StatTile { label: "Encoder CPU"; value: root.live ? Format.number(tel.processCpu, 0) + "%" : job && job.peakCpu > 0 ? Format.number(job.peakCpu, 0) + "%" : "—"
                        detail: root.live ? "of all " + tel.coreCount + " cores · peak " + Format.number(job.peakCpu, 0) + "%" : job && job.peakCpu > 0 ? "peak" : "" }
@@ -192,8 +197,8 @@ ScrollView {
         GridLayout {
             Layout.fillWidth: true
             columns: root.width > 760 ? 2 : 1
-            columnSpacing: 10
-            rowSpacing: 10
+            columnSpacing: 8
+            rowSpacing: 8
             Graph { Layout.fillWidth: true; title: "Speed (× real time)"; values: hist.speed || []; floor: 1
                     current: job && job.speed > 0 ? Format.number(job.speed, 2) + "×" : ""; lineColor: theme.accent }
             Graph { Layout.fillWidth: true; title: "Frames per second"; values: hist.fps || []
@@ -210,58 +215,48 @@ ScrollView {
         MachinePanel { Layout.fillWidth: true; tel: root.tel }
 
         // What will be (or was) run.
-        Rectangle {
-            Layout.fillWidth: true
-            color: theme.surface
-            radius: 10
-            implicitHeight: recipe.implicitHeight + 28
+        Panel {
+            title: "Recipe"
             visible: job !== null && job.commandLine !== ""
+            header: [
+                Item { Layout.fillWidth: true },
+                UiButton { text: "Copy command"; kind: "ghost"; implicitHeight: 22; onClicked: backend.copyText(job.commandLine) }
+            ]
 
-            ColumnLayout {
-                id: recipe
-                anchors.fill: parent
-                anchors.margins: 14
-                spacing: 8
-
-                Text { text: "RECIPE"; color: theme.dim; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1 }
+            Text {
+                text: job ? job.preset.name + "  →  " + Format.folder(job.outputPath) : ""
+                color: theme.foreground
+                font.pixelSize: 12
+                elide: Text.ElideMiddle
+                Layout.fillWidth: true
+            }
+            Repeater {
+                model: job ? job.notes : []
                 Text {
-                    text: job ? job.preset.name + " → " + Format.folder(job.outputPath) : ""
-                    color: theme.foreground
-                    font.pixelSize: 13
-                    elide: Text.ElideMiddle
-                    Layout.fillWidth: true
+                    required property string modelData
+                    text: "✓  " + modelData
+                    color: theme.good
+                    font.pixelSize: 12
                 }
-                Repeater {
-                    model: job ? job.notes : []
-                    Text {
-                        required property string modelData
-                        text: "✓  " + modelData
-                        color: theme.good
-                        font.pixelSize: 12
-                    }
-                }
-                Rectangle {
-                    Layout.fillWidth: true
-                    color: theme.background
-                    radius: 6
-                    implicitHeight: cmd.implicitHeight + 16
-                    TextEdit {
-                        id: cmd
-                        anchors.fill: parent
-                        anchors.margins: 8
-                        text: job ? job.commandLine : ""
-                        readOnly: true
-                        selectByMouse: true
-                        wrapMode: TextEdit.WrapAnywhere
-                        color: theme.dim
-                        font.family: "monospace"
-                        font.pixelSize: 11
-                    }
-                }
-                Button {
-                    text: "Copy ffmpeg command"
-                    flat: true
-                    onClicked: backend.copyText(job.commandLine)
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                color: theme.background
+                radius: 4
+                border.width: 1
+                border.color: theme.border
+                implicitHeight: cmd.implicitHeight + 16
+                TextEdit {
+                    id: cmd
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    text: job ? job.commandLine : ""
+                    readOnly: true
+                    selectByMouse: true
+                    wrapMode: TextEdit.WrapAnywhere
+                    color: theme.dim
+                    font.family: theme.mono
+                    font.pixelSize: 11
                 }
             }
         }

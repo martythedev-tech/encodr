@@ -23,7 +23,7 @@ ScrollView {
         default property alias control: holder.data
         Layout.fillWidth: true
         spacing: 12
-        Text { text: parent.label; color: theme.dim; font.pixelSize: 13; Layout.preferredWidth: 120; Layout.alignment: Qt.AlignTop; Layout.topMargin: 10; wrapMode: Text.Wrap }
+        Text { text: parent.label; color: theme.dim; font.pixelSize: 12; Layout.preferredWidth: 120; Layout.alignment: Qt.AlignTop; Layout.topMargin: 7; wrapMode: Text.Wrap }
         Item {
             id: holder
             Layout.fillWidth: true
@@ -33,8 +33,12 @@ ScrollView {
 
     component Choice: ComboBox {
         property string key
+        implicitHeight: 32
+        topInset: 0
+        bottomInset: 0
+        font.pixelSize: 12
         property var options: []     // [{value, text}]
-        width: parent ? Math.min(440, parent.width) : 300
+        width: parent ? Math.min(380, parent.width) : 300
         model: options
         textRole: "text"
         valueRole: "value"
@@ -48,13 +52,15 @@ ScrollView {
         property string title
         Layout.fillWidth: true
         color: theme.surface
-        radius: 10
-        implicitHeight: inner.implicitHeight + 46
-        Text { x: 14; y: 12; text: parent.title.toUpperCase(); color: theme.dim; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1 }
+        radius: 6
+        border.width: 1
+        border.color: theme.border
+        implicitHeight: inner.implicitHeight + 50
+        Text { x: 14; y: 13; text: parent.title.toUpperCase(); color: theme.dim; font.pixelSize: 11; font.weight: Font.DemiBold; font.letterSpacing: 0.8 }
         ColumnLayout {
             id: inner
             x: 14
-            y: 34
+            y: 36
             width: parent.width - 28
             spacing: 8
         }
@@ -62,7 +68,7 @@ ScrollView {
 
     ColumnLayout {
         width: root.availableWidth
-        spacing: 14
+        spacing: 10
 
         Text {
             visible: root.locked && job !== null && job.state !== "probing"
@@ -75,6 +81,10 @@ ScrollView {
             title: "Preset"
             ComboBox {
                 id: presetBox
+                implicitHeight: 32
+                topInset: 0
+                bottomInset: 0
+                font.pixelSize: 12
                 Layout.fillWidth: true
                 Layout.maximumWidth: 520
                 enabled: !root.locked
@@ -118,7 +128,7 @@ ScrollView {
                 label: "Quality"
                 visible: root.lossyVideo
                 ColumnLayout {
-                    width: Math.min(440, parent.width)
+                    width: Math.min(380, parent.width)
                     spacing: 0
                     Slider {
                         id: crfSlider
@@ -143,6 +153,10 @@ ScrollView {
                 RowLayout {
                     width: parent.width
                     SpinBox {
+                        implicitHeight: 32
+                        topInset: 0
+                        bottomInset: 0
+                        font.pixelSize: 12
                         from: 0; to: 200; editable: true
                         enabled: !root.locked
                         value: Math.round((root.p.maxrateKbps || 0) / 1000)
@@ -156,8 +170,8 @@ ScrollView {
                 visible: p.video === "h264" || p.video === "hevc"
                 Choice { key: "speed"; options: [
                     { value: "veryfast", text: "Very fast — bigger files" }, { value: "faster", text: "Faster" },
-                    { value: "fast", text: "Fast" }, { value: "medium", text: "Medium" },
-                    { value: "slow", text: "Slow — smaller files (recommended)" }, { value: "slower", text: "Slower" },
+                    { value: "fast", text: "Fast (recommended)" }, { value: "medium", text: "Medium" },
+                    { value: "slow", text: "Slow — slightly smaller files" }, { value: "slower", text: "Slower" },
                     { value: "veryslow", text: "Very slow — smallest" }] }
             }
             Field {
@@ -208,7 +222,13 @@ ScrollView {
             Field {
                 label: "Watermark"
                 TextField {
-                    width: Math.min(440, parent.width)
+                    implicitHeight: 32
+                    topInset: 0
+                    bottomInset: 0
+                    topPadding: 0
+                    bottomPadding: 0
+                    font.pixelSize: 12
+                    width: Math.min(380, parent.width)
                     enabled: !root.locked
                     placeholderText: "e.g. DRAFT — letters, numbers and spaces"
                     text: root.p.watermark || ""
@@ -255,8 +275,8 @@ ScrollView {
                 Layout.fillWidth: true
             }
             RowLayout {
-                Button { text: "Choose folder…"; onClicked: backend.chooseOutputFolder() }
-                Button { text: "Next to the originals"; flat: true; visible: backend.outputMode === "folder"; onClicked: backend.useSourceFolders() }
+                UiButton { text: "Choose folder…"; onClicked: backend.chooseOutputFolder() }
+                UiButton { text: "Next to the originals"; kind: "ghost"; visible: backend.outputMode === "folder"; onClicked: backend.useSourceFolders() }
             }
         }
 
@@ -266,22 +286,29 @@ ScrollView {
                 Layout.fillWidth: true
                 TextField {
                     id: presetName
+                    implicitHeight: 32
+                    topInset: 0
+                    bottomInset: 0
+                    topPadding: 0
+                    bottomPadding: 0
+                    font.pixelSize: 12
                     Layout.fillWidth: true
                     Layout.maximumWidth: 360
                     placeholderText: "Preset name"
                     text: root.p.builtin ? "" : (root.p.name || "").replace(" (edited)", "")
                 }
-                Button {
+                UiButton {
                     text: "Save as preset"
                     enabled: presetName.text.trim() !== "" && job !== null
                     onClicked: backend.savePreset(root.jobIndex, presetName.text)
                 }
             }
             RowLayout {
-                Button { text: "Use for all waiting files"; flat: true; onClicked: backend.applyToWaiting(root.jobIndex) }
-                Button {
+                UiButton { text: "Use for all waiting files"; kind: "ghost"; onClicked: backend.applyToWaiting(root.jobIndex) }
+                UiButton {
                     text: "Delete this preset"
-                    flat: true
+                    kind: "ghost"
+                    danger: true
                     visible: root.p.id !== undefined && String(root.p.id).indexOf("user-") === 0
                     onClicked: backend.deletePreset(root.p.id)
                 }

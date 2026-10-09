@@ -24,6 +24,8 @@ ApplicationWindow {
     Material.accent: theme.accent
     Material.background: theme.surface
     Material.foreground: theme.foreground
+    Material.roundedScale: Material.ExtraSmallScale
+    Material.containerStyle: Material.Outlined
 
     property bool helpVisible: false
     property int tab: 0
@@ -68,6 +70,8 @@ ApplicationWindow {
     Shortcut { sequence: "V"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: { win.tab = 0; progressPane.cyclePreview(); } }
     Shortcut { sequence: "X"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.clearFinished() }
 
+    component Hairline: Rectangle { color: theme.border; implicitHeight: 1; implicitWidth: 1 }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -75,34 +79,38 @@ ApplicationWindow {
         // Top bar
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: 58
+            implicitHeight: 46
             color: theme.surface
 
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 16
-                anchors.rightMargin: 12
-                spacing: 10
+                anchors.rightMargin: 10
+                spacing: 8
 
-                Text { text: "Encodr"; color: theme.foreground; font.pixelSize: 20; font.bold: true }
+                Text { text: "Encodr"; color: theme.foreground; font.pixelSize: 15; font.weight: Font.DemiBold }
+                Rectangle { visible: status.text !== ""; implicitWidth: 1; implicitHeight: 14; color: theme.border; Layout.leftMargin: 4; Layout.rightMargin: 4 }
                 Text {
+                    id: status
                     text: backend.jobs.length === 0 ? "" :
                           backend.jobs.length + " file" + (backend.jobs.length === 1 ? "" : "s") + " · "
                           + backend.doneCount + " done · " + backend.waitingCount + " waiting"
                     color: theme.dim
-                    font.pixelSize: 13
+                    font.pixelSize: 12
                 }
                 Item { Layout.fillWidth: true }
-                Button { text: "Add files  (O)"; onClicked: backend.addFilesDialog() }
-                Button {
-                    text: backend.paused ? "Resume  (Space)" : backend.hasActiveWork ? "Pause  (Space)" : "Start  (Space)"
-                    highlighted: !backend.hasActiveWork || backend.paused
+                UiButton { text: "Add files"; hint: "O"; onClicked: backend.addFilesDialog() }
+                UiButton {
+                    text: backend.paused ? "Resume" : backend.hasActiveWork ? "Pause" : "Start"
+                    hint: "Space"
+                    kind: !backend.hasActiveWork || backend.paused ? "primary" : "default"
                     enabled: backend.hasActiveWork || backend.waitingCount > 0
                     onClicked: backend.toggleQueue()
                 }
-                ToolButton { text: "?"; font.bold: true; onClicked: win.helpVisible = true }
+                UiButton { text: "?"; kind: "ghost"; implicitWidth: 28; onClicked: win.helpVisible = true }
             }
         }
+        Hairline { Layout.fillWidth: true }
 
         RowLayout {
             Layout.fillWidth: true
@@ -112,14 +120,28 @@ ApplicationWindow {
             // Queue
             Rectangle {
                 Layout.fillHeight: true
-                Layout.preferredWidth: 340
+                Layout.preferredWidth: 300
                 color: theme.surface
+
+                Text {
+                    id: queueTitle
+                    x: 16
+                    y: 14
+                    text: "QUEUE"
+                    color: theme.dim
+                    font.pixelSize: 11
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 0.8
+                }
 
                 ListView {
                     id: queueList
                     anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 8
+                    anchors.topMargin: 36
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    anchors.bottomMargin: 8
+                    spacing: 2
                     clip: true
                     model: backend.jobs
                     currentIndex: backend.selectedIndex
@@ -129,15 +151,27 @@ ApplicationWindow {
                         required property var modelData
                         required property int index
                         readonly property var j: modelData
+                        readonly property bool selected: index === backend.selectedIndex
+                        readonly property color stateColor: j.state === "failed" ? theme.bad : j.state === "done" ? theme.good
+                                                          : j.state === "running" ? theme.accent : j.state === "paused" ? theme.warn : theme.dim
                         width: queueList.width
-                        implicitHeight: cardBody.implicitHeight + 20
-                        radius: 8
-                        color: index === backend.selectedIndex ? theme.raised : "transparent"
-                        border.width: index === backend.selectedIndex ? 1 : 0
-                        border.color: theme.accent
+                        implicitHeight: cardBody.implicitHeight + 18
+                        radius: 4
+                        color: selected ? theme.raised : cardMouse.containsMouse ? theme.hover : "transparent"
+
+                        Rectangle {
+                            visible: card.selected
+                            width: 2
+                            height: parent.height - 12
+                            anchors.verticalCenter: parent.verticalCenter
+                            radius: 1
+                            color: theme.accent
+                        }
 
                         MouseArea {
+                            id: cardMouse
                             anchors.fill: parent
+                            hoverEnabled: true
                             onClicked: backend.selectedIndex = card.index
                             onDoubleClicked: backend.openOutput(card.index)
                         }
@@ -147,25 +181,27 @@ ApplicationWindow {
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.top: parent.top
-                            anchors.margins: 10
-                            spacing: 4
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 10
+                            anchors.topMargin: 9
+                            spacing: 3
 
                             RowLayout {
                                 Layout.fillWidth: true
+                                spacing: 8
                                 Text {
                                     text: card.j.fileName
                                     color: theme.foreground
-                                    font.pixelSize: 14
-                                    font.bold: true
+                                    font.pixelSize: 13
+                                    font.weight: Font.Medium
                                     elide: Text.ElideMiddle
                                     Layout.fillWidth: true
                                 }
+                                Rectangle { implicitWidth: 6; implicitHeight: 6; radius: 3; color: card.stateColor }
                                 Text {
                                     text: Format.stateLabel(card.j.state)
                                     font.pixelSize: 11
-                                    font.bold: true
-                                    color: card.j.state === "failed" ? theme.bad : card.j.state === "done" ? theme.good
-                                         : card.j.state === "running" ? theme.accent : card.j.state === "paused" ? theme.warn : theme.dim
+                                    color: card.stateColor
                                 }
                             }
                             Text {
@@ -175,16 +211,19 @@ ApplicationWindow {
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
                             }
-                            ProgressBar {
+                            Meter {
                                 Layout.fillWidth: true
+                                Layout.topMargin: 3
+                                Layout.bottomMargin: 1
                                 visible: card.j.state === "running" || card.j.state === "paused" || card.j.state === "done"
-                                from: 0; to: 100
                                 value: card.j.percent
+                                barColor: card.stateColor
                             }
                             Text {
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
                                 font.pixelSize: 11
+                                font.features: { "tnum": 1 }
                                 color: card.j.state === "failed" ? theme.bad : theme.dim
                                 text: {
                                     var s = card.j.state;
@@ -205,13 +244,14 @@ ApplicationWindow {
                     ColumnLayout {
                         anchors.centerIn: parent
                         visible: backend.jobs.length === 0
-                        spacing: 10
+                        spacing: 6
                         width: parent.width - 40
-                        Text { text: "Drop video or audio files here"; color: theme.foreground; font.pixelSize: 16; font.bold: true; Layout.alignment: Qt.AlignHCenter }
-                        Text { text: "or press O to choose them"; color: theme.dim; font.pixelSize: 13; Layout.alignment: Qt.AlignHCenter }
+                        Text { text: "Drop video or audio files here"; color: theme.foreground; font.pixelSize: 13; font.weight: Font.Medium; Layout.alignment: Qt.AlignHCenter }
+                        Text { text: "or press O to choose them"; color: theme.dim; font.pixelSize: 12; Layout.alignment: Qt.AlignHCenter }
                     }
                 }
             }
+            Hairline { Layout.fillHeight: true }
 
             // Details
             ColumnLayout {
@@ -219,20 +259,17 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 spacing: 0
 
-                TabBar {
-                    id: tabs
+                TabStrip {
                     Layout.fillWidth: true
-                    currentIndex: win.tab
-                    onCurrentIndexChanged: win.tab = currentIndex
-                    TabButton { text: "Progress  1" }
-                    TabButton { text: "Source  2" }
-                    TabButton { text: "Settings  3" }
+                    labels: ["Progress", "Source", "Settings"]
+                    current: win.tab
+                    onPicked: function (index) { win.tab = index; }
                 }
 
                 StackLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.margins: 14
+                    Layout.margins: 16
                     currentIndex: win.tab
                     visible: win.job !== null
 
@@ -244,15 +281,16 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     visible: win.job === null
-                    MachinePanel { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 14; tel: backend.telemetry }
+                    MachinePanel { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 16; tel: backend.telemetry }
                 }
             }
         }
 
         // Status bar
+        Hairline { Layout.fillWidth: true }
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: 34
+            implicitHeight: 26
             color: theme.surface
 
             RowLayout {
@@ -263,7 +301,7 @@ ApplicationWindow {
 
                 Text {
                     color: backend.notice !== "" ? theme.warn : theme.dim
-                    font.pixelSize: 12
+                    font.pixelSize: 11
                     Layout.fillWidth: true
                     elide: Text.ElideRight
                     text: {
@@ -279,14 +317,15 @@ ApplicationWindow {
                     visible: backend.inhibiting
                     text: "Sleep blocked while converting"
                     color: theme.dim
-                    font.pixelSize: 12
+                    font.pixelSize: 11
                 }
                 Text {
                     text: "CPU " + Format.number(backend.telemetry.cpuTotal, 0) + "%"
                           + (backend.telemetry.systemWatts > 0 ? " · " + Format.number(backend.telemetry.systemWatts, 1) + " W" : "")
                           + (backend.telemetry.hottest > 0 ? " · " + Format.number(backend.telemetry.hottest, 0) + " °C" : "")
                     color: backend.telemetry.throttled ? theme.bad : theme.dim
-                    font.pixelSize: 12
+                    font.pixelSize: 11
+                    font.features: { "tnum": 1 }
                 }
             }
             Timer {
@@ -310,8 +349,8 @@ ApplicationWindow {
             visible: drop.containsDrag
             color: Qt.rgba(0, 0, 0, 0.55)
             border.color: theme.accent
-            border.width: 3
-            Text { anchors.centerIn: parent; text: "Drop to add to the queue"; color: theme.foreground; font.pixelSize: 22; font.bold: true }
+            border.width: 2
+            Text { anchors.centerIn: parent; text: "Drop to add to the queue"; color: theme.foreground; font.pixelSize: 16; font.weight: Font.DemiBold }
         }
     }
 

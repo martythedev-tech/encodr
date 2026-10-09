@@ -20,6 +20,9 @@ class Theme : public QObject {
     Q_PROPERTY(QString good READ good NOTIFY changed)
     Q_PROPERTY(QString warn READ warn NOTIFY changed)
     Q_PROPERTY(QString bad READ bad NOTIFY changed)
+    Q_PROPERTY(QString border READ border NOTIFY changed)
+    Q_PROPERTY(QString hover READ hover NOTIFY changed)
+    Q_PROPERTY(QString mono READ mono CONSTANT)
 
 public:
     explicit Theme(const QString &currentDirectory = {}, QObject *parent = nullptr);
@@ -34,6 +37,14 @@ public:
     QString good() const { return m_colors.value("green", "#7bd88f"); }
     QString warn() const { return m_colors.value("yellow", "#e8c46a"); }
     QString bad() const { return m_colors.value("red", "#f07178"); }
+    // Hairlines and hover fills, mixed from the palette so they suit any theme.
+    QString border() const { return mix(foreground(), surface(), 0.12); }
+    QString hover() const { return mix(foreground(), surface(), 0.07); }
+    // Numbers read best in a monospaced face; fontconfig resolves it to the
+    // Omarchy terminal font.
+    QString mono() const { return "monospace"; }
+
+    static QString mix(const QString &top, const QString &bottom, double amount);
 
     static QString readAccent(const QString &path);
     static QHash<QString, QString> readColors(const QString &path);

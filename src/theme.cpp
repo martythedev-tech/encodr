@@ -46,6 +46,12 @@ QString Theme::accentForeground() const {
     return luminance > .179 ? "black" : "white";
 }
 
+QString Theme::mix(const QString &top, const QString &bottom, double amount) {
+    const QColor a(top), b(bottom);
+    auto blend = [amount](double x, double y) { return x * amount + y * (1 - amount); };
+    return QColor::fromRgbF(blend(a.redF(), b.redF()), blend(a.greenF(), b.greenF()), blend(a.blueF(), b.blueF())).name();
+}
+
 void Theme::reload() {
     const auto paths = m_watcher.files() + m_watcher.directories();
     if (!paths.isEmpty())
