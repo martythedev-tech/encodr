@@ -189,8 +189,41 @@ QString pixelFormatFor(const Preset &p) {
 }
 }
 
+namespace {
+const char *kPreviewScale = "fps=1,scale=-2:360:flags=bilinear:out_range=full,format=yuvj420p";
+
+QStringList previewOutput(const QString &label, const QString &path) {
+    return {"-map", label, "-c:v", "mjpeg", "-q:v", "5", "-an", "-f", "image2", "-update", "1",
+            "-atomic_writing", "1", path};
+}
+}
+
+QStringList colourFixArguments(const MediaInfo &info) {
+    if (!info.hasVideo || !info.colourTagsBroken())
+        return {};
+    // Colour labels live inside each compressed frame, so a decoder-side
+    // override can't reach them; rewrite them in the bitstream instead.
+    const bool hd = info.height >= 720;
+    if (info.videoCodec == "prores")
+        return {"-bsf:v", QString("prores_metadata=color_primaries=%1:color_trc=%1:colorspace=%1").arg(hd ? "bt709" : "smpte170m")};
+    if (info.videoCodec == "h264" || info.videoCodec == "hevc")
+        return {"-bsf:v", QString("%1_metadata=colour_primaries=%2:transfer_characteristics=%2:matrix_coefficients=%2")
+                              .arg(info.videoCodec).arg(hd ? 1 : 6)};
+    return {};
+}
+
+QStringList posterArguments(const MediaInfo &info, const QString &input, double at, const QString &jpeg) {
+    QStringList a{"-nostdin", "-hide_banner", "-y", "-loglevel", "error"};
+    a << colourFixArguments(info);
+    a << "-ss" << QString::number(std::max(0.0, at), 'f', 2) << "-i" << input << "-frames:v" << "1"
+      << "-vf" << "scale=-2:360:flags=bilinear:out_range=full,format=yuvj420p" << "-q:v" << "4"
+      << "-update" << "1" << jpeg;
+    return a;
+}
+
 Command buildCommand(const Preset &p, const MediaInfo &info, const QString &input,
-                     const QString &output, double start, double length) {
+                     const QString &output, double start, double length,
+                     const QString &previewOut, const QString &previewSource) {
     Command cmd;
     QStringList &a = cmd.arguments;
     a << "-nostdin" << "-hide_banner" << "-y" << "-loglevel" << "error"
@@ -199,20 +232,12 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
     const bool withVideo = info.hasVideo && !p.audioOnly();
     const bool hd = info.height >= 720;
     const QString defPrim = hd ? "bt709" : "smpte170m";
+    const bool previews = withVideo && !previewOut.isEmpty() && !previewSource.isEmpty();
 
-    // Colour labels live inside each compressed frame, so a decoder-side
-    // override can't reach them; rewrite them in the bitstream instead.
-    if (withVideo && info.colourTagsBroken()) {
-        const QString codec = info.videoCodec;
-        if (codec == "prores") {
-            a << "-bsf:v" << QString("prores_metadata=color_primaries=%1:color_trc=%1:colorspace=%1").arg(defPrim);
-            cmd.notes << QString("Colour labels set to %1").arg(hd ? "Rec. 709" : "Rec. 601");
-        } else if (codec == "h264" || codec == "hevc") {
-            const int code = hd ? 1 : 6;
-            a << "-bsf:v" << QString("%1_metadata=colour_primaries=%2:transfer_characteristics=%2:matrix_coefficients=%2")
-                                 .arg(codec).arg(code);
-            cmd.notes << QString("Colour labels set to %1").arg(hd ? "Rec. 709" : "Rec. 601");
-        }
+    const QStringList fix = withVideo ? colourFixArguments(info) : QStringList();
+    if (!fix.isEmpty()) {
+        a << fix;
+        cmd.notes << QString("Colour labels set to %1").arg(hd ? "Rec. 709" : "Rec. 601");
     }
 
     if (start >= 0)
@@ -254,7 +279,14 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             cmd.notes << QString("Watermark \"%1\"").arg(mark);
         }
         chain << "format=" + pixelFormatFor(p);
-        graph << "[0:v:0]" + chain.join(',') + "[v]";
+        if (previews) {
+            graph << "[0:v:0]split=2[vin][sv]";
+            graph << "[vin]" + chain.join(',') + ",split=2[v][pv]";
+            graph << QString("[pv]%1[pvo]").arg(kPreviewScale);
+            graph << QString("[sv]%1[svo]").arg(kPreviewScale);
+        } else {
+            graph << "[0:v:0]" + chain.join(',') + "[v]";
+        }
     }
 
     const bool withAudio = !info.audio.isEmpty() && p.audio != "none";
@@ -333,6 +365,8 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
     if (quicktime)
         a << "-movflags" << "+faststart";
     a << output;
+    if (previews)
+        a << previewOutput("[pvo]", previewOut) << previewOutput("[svo]", previewSource);
     return cmd;
 }
 

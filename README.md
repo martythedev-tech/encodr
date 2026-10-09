@@ -15,6 +15,9 @@ Drop in files, pick a preset, press Space.
 - **A source inspector that explains problems and fixes them.** Blank colour
   labels (common on Ki Pro and other recorders), interlaced video, audio split
   across mono tracks, clipping and silent tracks, read-only source drives.
+- **A live preview while it converts.** The frame being worked on right now,
+  as the output will look (with burned-in timecode, watermark, scaling) or
+  as the source, or both side by side. Before converting, a poster frame.
 - **Every number while it converts.** Percent, elapsed, time left and the clock
   time it will finish, speed (now and average), frames and fps, bitrate,
   size so far and the projected final size against free space, quantizer,
@@ -36,6 +39,7 @@ Drop in files, pick a preset, press Space.
 | --- | --- |
 | Space | Start the queue, or pause / resume |
 | O | Add files (or drag them onto the window) |
+| V | Preview: output, source, or side by side |
 | C | Stop the current file |
 | R | Convert the selected file again |
 | Enter | Play the finished file |

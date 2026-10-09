@@ -57,6 +57,10 @@ class Job : public QObject {
     Q_PROPERTY(double peakCpu READ peakCpu NOTIFY statsChanged)
     Q_PROPERTY(qint64 freeSpace READ freeSpace NOTIFY statsChanged)
     Q_PROPERTY(QVariantMap history READ history NOTIFY statsChanged)
+    Q_PROPERTY(QString previewOut READ previewOut CONSTANT)
+    Q_PROPERTY(QString previewSource READ previewSource CONSTANT)
+    Q_PROPERTY(int previewStamp READ previewStamp NOTIFY previewChanged)
+    Q_PROPERTY(bool hasLivePreview READ hasLivePreview NOTIFY previewChanged)
 
 public:
     Job(int id, const QString &inputPath, QObject *parent = nullptr);
@@ -105,6 +109,10 @@ public:
     double peakCpu() const { return m_peakCpu; }
     qint64 freeSpace() const { return m_freeSpace; }
     QVariantMap history() const;
+    QString previewOut() const { return m_previewOut; }
+    QString previewSource() const { return m_previewSource; }
+    int previewStamp() const { return m_previewStamp; }
+    bool hasLivePreview() const { return m_hasLivePreview; }
 
     qint64 processId() const { return m_process ? m_process->processId() : 0; }
     bool isActive() const { return m_state == "running" || m_state == "paused"; }
@@ -132,10 +140,13 @@ signals:
     void presetChanged();
     void statsChanged();
     void finished(bool ok);
+    void previewChanged();
 
 private:
     void setState(const QString &state, const QString &message = {});
     void scanLevels(int track);
+    void makePoster();
+    void checkPreview();
     void readProgress();
     void onFinished(int code, QProcess::ExitStatus status);
     void pushHistory(QVariantList &list, double value);
@@ -175,6 +186,12 @@ private:
     double m_peakCpu = 0;
     qint64 m_freeSpace = -1;
     double m_lastHistoryAt = -1;
+
+    QString m_previewOut;
+    QString m_previewSource;
+    int m_previewStamp = 0;
+    bool m_hasLivePreview = false;
+    QDateTime m_previewTime;
 
     QVariantList m_speedHistory, m_fpsHistory, m_bitrateHistory, m_cpuHistory, m_wattHistory;
     double m_pendingCpu = 0;

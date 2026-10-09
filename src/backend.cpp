@@ -11,6 +11,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocale>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QSaveFile>
@@ -359,8 +360,14 @@ void Backend::onJobFinished(Job *job, bool ok) {
     m_watchedPid = 0;
     m_telemetry->setProcess(0);
     if (ok) {
+        const int seconds = int(job->elapsed() + 0.5);
+        const QString took = seconds >= 3600 ? QString("%1 h %2 min").arg(seconds / 3600).arg(seconds % 3600 / 60)
+                           : seconds >= 60   ? QString("%1 min %2 s").arg(seconds / 60).arg(seconds % 60)
+                                             : QString("%1 s").arg(seconds);
         notify(QString("Converted %1").arg(job->fileName()),
-               QString("%1 in %2 min").arg(QFileInfo(job->outputPath()).fileName()).arg(int(job->elapsed() / 60)));
+               QString("%1 · %2 · took %3").arg(QFileInfo(job->outputPath()).fileName(),
+                                                QLocale().formattedDataSize(QFileInfo(job->outputPath()).size(), 1, QLocale::DataSizeSIFormat),
+                                                took));
     } else if (job->state() == "failed") {
         notify(QString("Couldn't convert %1").arg(job->fileName()), job->message());
     }

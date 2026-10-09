@@ -44,9 +44,18 @@ struct Command {
     QStringList notes;          // what was adapted to this source
 };
 
-// start/length < 0 mean the whole file.
+// start/length < 0 mean the whole file. With preview paths, ffmpeg also keeps
+// a small JPEG of the frame it's working on up to date, once per second of
+// media: the source as decoded, and the picture after Encodr's processing.
 Command buildCommand(const Preset &preset, const MediaInfo &info, const QString &input,
-                     const QString &output, double start = -1, double length = -1);
+                     const QString &output, double start = -1, double length = -1,
+                     const QString &previewOut = {}, const QString &previewSource = {});
+
+// Input options that relabel blank colour tags in the bitstream, if needed.
+QStringList colourFixArguments(const MediaInfo &info);
+
+// Arguments that write one small preview frame at `at` seconds to `jpeg`.
+QStringList posterArguments(const MediaInfo &info, const QString &input, double at, const QString &jpeg);
 
 // A shell-pasteable rendering of the command, for display and copying.
 QString shellQuote(const QStringList &arguments);

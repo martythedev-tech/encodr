@@ -11,6 +11,7 @@ Rectangle {
     readonly property var keys: [
         ["Space", "Start the queue, or pause / resume the current file"],
         ["O", "Add files (or drag them onto the window)"],
+        ["V", "Preview: output, source, or side by side"],
         ["C", "Stop the current file"],
         ["R", "Convert the selected file again"],
         ["Enter", "Play the finished file"],

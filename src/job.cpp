@@ -1,9 +1,11 @@
 #include "job.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QStorageInfo>
 #include <QTimer>
 #include <signal.h>
@@ -22,6 +24,13 @@ QString extensionFor(const Preset &p) {
 Job::Job(int id, const QString &inputPath, QObject *parent)
     : QObject(parent), m_id(id), m_input(inputPath) {
     m_outputFolder = QFileInfo(inputPath).absolutePath();
+    // Preview frames live in the cache, named per process so two Encodr
+    // windows never draw over each other's.
+    const QString cache = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    QDir().mkpath(cache);
+    const QString stem = QString("%1/preview-%2-%3").arg(cache).arg(QCoreApplication::applicationPid()).arg(id);
+    m_previewOut = stem + "-out.jpg";
+    m_previewSource = stem + "-source.jpg";
 }
 
 Job::~Job() {
@@ -34,6 +43,8 @@ Job::~Job() {
     }
     if (!m_finalPath.isEmpty() && isActive())
         QFile::remove(partialPathFor(m_finalPath));
+    QFile::remove(m_previewOut);
+    QFile::remove(m_previewSource);
 }
 
 QString Job::fileName() const {
@@ -118,6 +129,7 @@ void Job::probe() {
         setState("ready");
         emit infoChanged();
         emit presetChanged();
+        makePoster();
         scanLevels(0);
     });
     process->start("ffprobe", {"-v", "error", "-print_format", "json", "-show_format", "-show_streams", m_input});
@@ -136,6 +148,32 @@ void Job::probe() {
         emit infoChanged();
     });
     report->start("mediainfo", {m_input});
+}
+
+// A frame a tenth of the way in stands for the file until conversion starts
+// (the very first frames are often black or a slate).
+void Job::makePoster() {
+    if (!m_info.hasVideo)
+        return;
+    auto *process = new QProcess(this);
+    connect(process, &QProcess::finished, this, [this, process](int code, QProcess::ExitStatus) {
+        process->deleteLater();
+        if (code == 0 && QFileInfo::exists(m_previewSource)) {
+            ++m_previewStamp;
+            emit previewChanged();
+        }
+    });
+    process->start("ffmpeg", posterArguments(m_info, m_input, m_info.duration * 0.1, m_previewSource));
+}
+
+void Job::checkPreview() {
+    const QDateTime modified = QFileInfo(m_previewOut).lastModified();
+    if (!modified.isValid() || modified == m_previewTime)
+        return;
+    m_previewTime = modified;
+    m_hasLivePreview = true;
+    ++m_previewStamp;
+    emit previewChanged();
 }
 
 // Levels come from a 30-second stretch in the middle of the file: reading a
@@ -184,7 +222,11 @@ bool Job::start() {
         return false;
     }
     const QString partial = partialPathFor(m_finalPath);
-    const Command command = buildCommand(m_preset, m_info, m_input, partial);
+    QFile::remove(m_previewOut);
+    m_previewTime = QDateTime();
+    m_hasLivePreview = false;
+    emit previewChanged();
+    const Command command = buildCommand(m_preset, m_info, m_input, partial, -1, -1, m_previewOut, m_previewSource);
     m_runNotes = command.notes;
 
     m_parser = ProgressParser();
@@ -365,6 +407,7 @@ void Job::readProgress() {
         m_estimate.remaining = 0;
     }
 
+    checkPreview();
     if (m_lastHistoryAt < 0 || t - m_lastHistoryAt >= kHistoryInterval) {
         m_lastHistoryAt = t;
         pushHistory(m_speedHistory, m_recentSpeed);

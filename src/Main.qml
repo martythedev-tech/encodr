@@ -30,6 +30,8 @@ ApplicationWindow {
     readonly property var job: backend.selectedJob
     // Letter shortcuts stay quiet while a text field has the keyboard.
     readonly property bool typing: activeFocusItem !== null && activeFocusItem.hasOwnProperty("cursorPosition")
+    // ...and while a confirmation is up, so Enter answers the dialog instead of playing a file.
+    readonly property bool blocked: typing || quitDialog.visible || progressPane.dialogOpen
 
     function quit() {
         if (backend.hasActiveWork)
@@ -44,26 +46,27 @@ ApplicationWindow {
         }
     }
 
-    Shortcut { sequence: "?"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.helpVisible = !win.helpVisible }
+    Shortcut { sequence: "?"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: win.helpVisible = !win.helpVisible }
     Shortcut { sequence: "Esc"; context: Qt.ApplicationShortcut; enabled: win.helpVisible; onActivated: win.helpVisible = false }
-    Shortcut { sequence: "Q"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.quit() }
-    Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: backend.toggleQueue() }
-    Shortcut { sequence: "O"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: backend.addFilesDialog() }
-    Shortcut { sequences: ["Delete", "Backspace"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: backend.removeJob(backend.selectedIndex) }
-    Shortcut { sequence: "Ctrl+Z"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: backend.undo() }
-    Shortcut { sequence: "Ctrl+Shift+Z"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: backend.redo() }
-    Shortcut { sequences: ["Down", "J"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: backend.selectedIndex = backend.selectedIndex + 1 }
-    Shortcut { sequences: ["Up", "K"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: backend.selectedIndex = Math.max(0, backend.selectedIndex - 1) }
+    Shortcut { sequence: "Q"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: win.quit() }
+    Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.toggleQueue() }
+    Shortcut { sequence: "O"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.addFilesDialog() }
+    Shortcut { sequences: ["Delete", "Backspace"]; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.removeJob(backend.selectedIndex) }
+    Shortcut { sequence: "Ctrl+Z"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.undo() }
+    Shortcut { sequence: "Ctrl+Shift+Z"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.redo() }
+    Shortcut { sequences: ["Down", "J"]; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.selectedIndex = backend.selectedIndex + 1 }
+    Shortcut { sequences: ["Up", "K"]; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.selectedIndex = Math.max(0, backend.selectedIndex - 1) }
     Shortcut { sequence: "Alt+Down"; context: Qt.ApplicationShortcut; onActivated: backend.moveJob(backend.selectedIndex, 1) }
     Shortcut { sequence: "Alt+Up"; context: Qt.ApplicationShortcut; onActivated: backend.moveJob(backend.selectedIndex, -1) }
-    Shortcut { sequence: "1"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.tab = 0 }
-    Shortcut { sequence: "2"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.tab = 1 }
-    Shortcut { sequence: "3"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.tab = 2 }
-    Shortcut { sequence: "C"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: progressPane.askStop() }
-    Shortcut { sequence: "R"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: backend.retryJob(backend.selectedIndex) }
-    Shortcut { sequences: ["Return", "Enter"]; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: backend.openOutput(backend.selectedIndex) }
-    Shortcut { sequence: "F"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: backend.revealOutput(backend.selectedIndex) }
-    Shortcut { sequence: "X"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: backend.clearFinished() }
+    Shortcut { sequence: "1"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: win.tab = 0 }
+    Shortcut { sequence: "2"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: win.tab = 1 }
+    Shortcut { sequence: "3"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: win.tab = 2 }
+    Shortcut { sequence: "C"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: progressPane.askStop() }
+    Shortcut { sequence: "R"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.retryJob(backend.selectedIndex) }
+    Shortcut { sequences: ["Return", "Enter"]; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.openOutput(backend.selectedIndex) }
+    Shortcut { sequence: "F"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.revealOutput(backend.selectedIndex) }
+    Shortcut { sequence: "V"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: { win.tab = 0; progressPane.cyclePreview(); } }
+    Shortcut { sequence: "X"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.clearFinished() }
 
     ColumnLayout {
         anchors.fill: parent

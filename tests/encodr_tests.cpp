@@ -290,6 +290,7 @@ private slots:
         job.setOutputFolder(dir.filePath("out"));
         job.probe();
         QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(job.previewSource()), 15000);   // poster frame
         QVERIFY(job.info().splitMono());
         QCOMPARE(job.info().timecode, QString("01:00:00:00"));
 
@@ -309,6 +310,33 @@ private slots:
         const QString streams = QString::fromUtf8(check.readAllStandardOutput());
         QVERIFY2(streams.contains("h264"), qPrintable(streams));
         QVERIFY2(streams.contains("aac,2"), qPrintable(streams));
+
+        // The live preview wrote both frames as real JPEGs.
+        QVERIFY(job.hasLivePreview());
+        QVERIFY(QFileInfo(job.previewOut()).size() > 1000);
+        QVERIFY(QFileInfo(job.previewSource()).size() > 1000);
+        QFile jpeg(job.previewOut());
+        QVERIFY(jpeg.open(QIODevice::ReadOnly));
+        QCOMPARE(jpeg.read(2), QByteArray("\xFF\xD8"));
+    }
+
+    void previewOutputsComeAfterTheRealOne() {
+        const MediaInfo info = parseProbe(kKiPro, "/x/in.mov");
+        const QStringList a = buildCommand(builtinPresets().first(), info, "/x/in.mov", "/y/out.mp4", -1, -1,
+                                           "/c/out.jpg", "/c/src.jpg").arguments;
+        const qsizetype main = a.indexOf("/y/out.mp4");
+        QVERIFY(main > 0);
+        QVERIFY(a.indexOf("/c/out.jpg") > main);
+        QVERIFY(a.indexOf("/c/src.jpg") > main);
+        QCOMPARE(a.last(), QString("/c/src.jpg"));
+        QVERIFY(a.join(' ').contains("[0:v:0]split=2[vin][sv]"));
+        QVERIFY(a.join(' ').contains(",split=2[v][pv]"));
+        // Audio-only presets get no preview outputs at all.
+        Preset wav;
+        for (const auto &p : builtinPresets())
+            if (p.id == "wav")
+                wav = p;
+        QVERIFY(!buildCommand(wav, info, "/x/in.mov", "/y/o.wav", -1, -1, "/c/o.jpg", "/c/s.jpg").arguments.contains("/c/o.jpg"));
     }
 
     void cancelDeletesThePartialFile() {

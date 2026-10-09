@@ -1,0 +1,143 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import "Format.js" as Format
+
+// What's being converted right now: the processed picture, the source, or
+// both side by side. Before a run it shows a poster frame from the source.
+Rectangle {
+    id: root
+    property var job: null
+    property string mode: "output"      // output, source, both
+    readonly property bool live: job !== null && job.hasLivePreview
+    readonly property bool running: job !== null && job.state === "running"
+    readonly property real frameHeight: Math.min(440, (mode === "both" ? (width - 38) / 2 : width - 28) * 9 / 16)
+
+    color: theme.surface
+    radius: 10
+    implicitHeight: body.implicitHeight + 28
+    visible: job !== null && job.info.hasVideo === true
+
+    function cycle() {
+        mode = mode === "output" ? "source" : mode === "source" ? "both" : "output";
+    }
+
+    ColumnLayout {
+        id: body
+        anchors.fill: parent
+        anchors.margins: 14
+        spacing: 10
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            Text { text: "PREVIEW"; color: theme.dim; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1 }
+            Rectangle {
+                visible: root.running && root.live
+                radius: 4
+                color: theme.bad
+                implicitWidth: liveText.implicitWidth + 12
+                implicitHeight: 18
+                Text { id: liveText; anchors.centerIn: parent; text: "LIVE"; color: theme.background; font.pixelSize: 10; font.bold: true }
+                SequentialAnimation on opacity {
+                    running: root.running && root.live
+                    loops: Animation.Infinite
+                    NumberAnimation { to: 0.45; duration: 900 }
+                    NumberAnimation { to: 1; duration: 900 }
+                }
+            }
+            Item { Layout.fillWidth: true }
+            Repeater {
+                model: [{ id: "output", text: "Output" }, { id: "source", text: "Source" }, { id: "both", text: "Side by side" }]
+                Button {
+                    required property var modelData
+                    text: modelData.text
+                    flat: root.mode !== modelData.id
+                    highlighted: root.mode === modelData.id
+                    font.pixelSize: 12
+                    implicitHeight: 34
+                    onClicked: root.mode = modelData.id
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 10
+
+            Repeater {
+                model: root.mode === "both" ? ["source", "output"] : [root.mode]
+                ColumnLayout {
+                    required property string modelData
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1     // equal shares side by side
+                    spacing: 4
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: root.frameHeight
+                        color: "black"
+                        radius: 6
+                        clip: true
+                        FrameView {
+                            id: frame
+                            anchors.fill: parent
+                            // Until the run writes processed frames, both views show the source poster.
+                            path: !job ? "" : modelData === "output" && root.live ? job.previewOut : job.previewSource
+                            stamp: job ? job.previewStamp : 0
+                        }
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.bottom: parent.bottom
+                            anchors.margins: 8
+                            visible: frame.ready && job !== null
+                            color: Qt.rgba(0, 0, 0, 0.6)
+                            radius: 4
+                            implicitWidth: where.implicitWidth + 12
+                            implicitHeight: where.implicitHeight + 6
+                            Text {
+                                id: where
+                                anchors.centerIn: parent
+                                color: "white"
+                                font.pixelSize: 11
+                                text: !job ? "" : root.live ? Format.duration(job.outTime) + " / " + Format.duration(job.info.duration)
+                                                            : "Poster · " + Format.duration(job.info.duration * 0.1) + " in"
+                            }
+                        }
+                        Text {
+                            anchors.centerIn: parent
+                            visible: !frame.ready
+                            text: job && job.state === "probing" ? "Reading the file…" : "No picture yet"
+                            color: theme.dim
+                            font.pixelSize: 13
+                        }
+                    }
+                    Text {
+                        visible: root.mode === "both"
+                        text: modelData === "source" ? "Source, as decoded" : "Output, after Encodr's processing"
+                        color: theme.dim
+                        font.pixelSize: 11
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+                }
+            }
+        }
+
+        Text {
+            visible: !root.live && job !== null && job.state !== "probing"
+            text: "A poster frame from the source. The live picture appears as soon as converting starts."
+            color: theme.dim
+            font.pixelSize: 11
+            wrapMode: Text.Wrap
+            Layout.fillWidth: true
+        }
+        Text {
+            visible: root.live && root.mode !== "source"
+            text: "Shows the processed picture (timecode, watermark, scaling, deinterlacing, colour) just before compression. "
+                  + "Updates once per second of video."
+            color: theme.dim
+            font.pixelSize: 11
+            wrapMode: Text.Wrap
+            Layout.fillWidth: true
+        }
+    }
+}

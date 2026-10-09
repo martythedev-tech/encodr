@@ -91,7 +91,8 @@ ScrollView {
                     }
                 }
 
-                RowLayout {
+                Flow {
+                    Layout.fillWidth: true
                     spacing: 8
                     Button {
                         visible: root.live
@@ -131,6 +132,8 @@ ScrollView {
                 }
             }
         }
+
+        PreviewPanel { id: preview; Layout.fillWidth: true; job: root.job }
 
         // The numbers.
         GridLayout {
@@ -262,6 +265,10 @@ ScrollView {
         standardButtons: Dialog.Yes | Dialog.No
         Label { text: "The unfinished file will be deleted. The original isn't touched." }
         onAccepted: backend.cancelJob(root.jobIndex)
+    }
+    readonly property bool dialogOpen: stopDialog.visible
+    function cyclePreview() {
+        preview.cycle();
     }
     function askStop() {
         if (live)

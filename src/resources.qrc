@@ -8,6 +8,8 @@
         <file alias="Graph.qml">Graph.qml</file>
         <file alias="StatTile.qml">StatTile.qml</file>
         <file alias="HelpOverlay.qml">HelpOverlay.qml</file>
+        <file alias="PreviewPanel.qml">PreviewPanel.qml</file>
+        <file alias="FrameView.qml">FrameView.qml</file>
         <file alias="Format.js">Format.js</file>
     </qresource>
 </RCC>
