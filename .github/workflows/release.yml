@@ -1,8 +1,9 @@
 # Builds Encodr for both architectures, after the tests pass:
 #   - the Arch package, in clean Arch containers (for Omarchy and Arch);
-#   - an AppImage for every other distribution, built on the oldest Ubuntu
-#     still supported so it runs on anything newer, then started on clean
-#     Ubuntu, Debian and Fedora to convert a real clip.
+#   - an AppImage for every other distribution, built on an old Ubuntu so it
+#     runs on anything newer (x86_64: 22.04; aarch64: 24.04, as Qt's arm64
+#     binaries need it), then started on clean Ubuntu, Debian and Fedora to
+#     convert a real clip.
 # A pushed tag (v0.2.0) attaches everything to that release; running it by
 # hand just leaves the files as downloads on the run.
 #
@@ -79,8 +80,9 @@ jobs:
             runner: ubuntu-22.04
             qt_arch: linux_gcc_64
             ffmpeg: linux64
+          # Qt's arm64 binaries need glibc 2.38, so this one starts at Ubuntu 24.04.
           - arch: aarch64
-            runner: ubuntu-22.04-arm
+            runner: ubuntu-24.04-arm
             qt_arch: linux_gcc_arm64
             ffmpeg: linuxarm64
     runs-on: ${{ matrix.runner }}
@@ -149,6 +151,11 @@ jobs:
       matrix:
         arch: [x86_64, aarch64]
         distro: ["ubuntu:22.04", "ubuntu:24.04", "debian:12", "fedora:latest"]
+        exclude:
+          - { arch: aarch64, distro: "ubuntu:22.04" }
+          - { arch: aarch64, distro: "debian:12" }
+        include:
+          - { arch: aarch64, distro: "debian:13" }
     runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     container: ${{ matrix.distro }}
     steps:
