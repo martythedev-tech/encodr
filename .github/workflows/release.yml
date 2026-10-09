@@ -32,8 +32,11 @@ jobs:
       PACKAGER: martythedev-tech <martythedev@gmail.com>
     steps:
       # A font is needed for the burned-in timecode test; desktops always have one.
+      # Containers can't apply pacman's download sandbox (Landlock), so it's off here.
       - name: Install build and test dependencies
-        run: pacman -Syu --noconfirm --needed git qt6-base qt6-declarative qt6-wayland ffmpeg xdg-desktop-portal libnotify ttf-dejavu
+        run: |
+          grep -q '^DisableSandbox' /etc/pacman.conf || sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
+          pacman -Syu --noconfirm --needed git qt6-base qt6-declarative qt6-wayland ffmpeg xdg-desktop-portal libnotify ttf-dejavu
 
       - uses: actions/checkout@v4
 

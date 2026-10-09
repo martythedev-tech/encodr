@@ -64,6 +64,21 @@ below; and the source details beside live stats. The layout is remembered.
 | ? | Shortcuts |
 | Q | Quit (asks first while converting) |
 
+## Install
+
+On Omarchy (or any Arch-based system), download the package for your machine
+from the [latest release](https://github.com/martythedev-tech/encodr/releases/latest):
+`x86_64` for most computers, `aarch64` for ARM ones such as Apple Silicon
+Macs running Asahi. Then:
+
+```sh
+sudo pacman -U ./encodr-*.pkg.tar.*
+```
+
+Encodr appears in the app launcher (Super + Space). Pacman pulls in what it
+needs (Qt 6, ffmpeg); `sudo pacman -S mediainfo` adds the full technical
+report.
+
 ## Build
 
 ```sh
