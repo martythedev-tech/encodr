@@ -1,6 +1,5 @@
 #include "browser.h"
 
-#include <QCollator>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -57,6 +56,43 @@ QString describe(const MediaInfo &info) {
         parts << (a.channels == 1 ? "mono" : a.channels == 2 ? "stereo" : QString("%1 ch").arg(a.channels));
     }
     return parts.join(" · ");
+}
+
+// Natural order ("Card 2" before "Card 10") that doesn't depend on the
+// system locale: QCollator's numeric mode quietly does nothing under the C
+// locale. Digit runs compare by value, the rest case-insensitively.
+int naturalCompare(const QString &a, const QString &b) {
+    qsizetype i = 0, j = 0;
+    while (i < a.size() && j < b.size()) {
+        if (a[i].isDigit() && b[j].isDigit()) {
+            qsizetype ei = i, ej = j;
+            while (ei < a.size() && a[ei].isDigit())
+                ++ei;
+            while (ej < b.size() && b[ej].isDigit())
+                ++ej;
+            // Compare by value without overflowing: strip leading zeros, then length, then digits.
+            QStringView da = QStringView(a).mid(i, ei - i), db = QStringView(b).mid(j, ej - j);
+            while (da.size() > 1 && da.front() == u'0')
+                da = da.mid(1);
+            while (db.size() > 1 && db.front() == u'0')
+                db = db.mid(1);
+            if (da.size() != db.size())
+                return da.size() < db.size() ? -1 : 1;
+            if (const int c = da.compare(db); c != 0)
+                return c;
+            i = ei;
+            j = ej;
+            continue;
+        }
+        const QChar ca = a[i].toCaseFolded(), cb = b[j].toCaseFolded();
+        if (ca != cb)
+            return ca < cb ? -1 : 1;
+        ++i;
+        ++j;
+    }
+    if (i < a.size() || j < b.size())
+        return i < a.size() ? 1 : -1;
+    return a.compare(b);
 }
 
 // Mount points are written with octal escapes for spaces and the like.
@@ -217,16 +253,13 @@ void Browser::list() {
         }
         fresh.append(e);
     }
-    QCollator collator;
-    collator.setNumericMode(true);
-    collator.setCaseSensitivity(Qt::CaseInsensitive);
-    std::sort(fresh.begin(), fresh.end(), [&](const Entry &a, const Entry &b) {
+    std::sort(fresh.begin(), fresh.end(), [](const Entry &a, const Entry &b) {
         if (a.isDir != b.isDir)
             return a.isDir;
         // By name without the extension, so an original sits just above its
         // converted copies (clip.mov, then clip_review.mp4).
-        const int byStem = collator.compare(QFileInfo(a.name).completeBaseName(), QFileInfo(b.name).completeBaseName());
-        return byStem != 0 ? byStem < 0 : collator.compare(a.name, b.name) < 0;
+        const int byStem = naturalCompare(QFileInfo(a.name).completeBaseName(), QFileInfo(b.name).completeBaseName());
+        return byStem != 0 ? byStem < 0 : naturalCompare(a.name, b.name) < 0;
     });
 
     // The same files as before (an output being written, say) only need their

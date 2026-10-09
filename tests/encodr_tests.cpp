@@ -257,6 +257,7 @@ private slots:
         QTemporaryDir dir, cache;
         QDir(dir.path()).mkdir("Card 2");
         QDir(dir.path()).mkdir("Card 10");
+        QDir(dir.path()).mkdir("card 9");
         QProcess make;
         make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=3",
                               "-c:v", "mpeg4", dir.filePath("clip.mov")});
@@ -271,10 +272,15 @@ private slots:
         browser.open(dir.path());
 
         auto at = [&](int row, int role) { return browser.data(browser.index(row), role); };
-        QCOMPARE(browser.rowCount(), 5);    // the hidden partial file isn't listed
-        // Folders first, numbers in order, then files by name.
+        QCOMPARE(browser.rowCount(), 6);    // the hidden partial file isn't listed
+        // Folders first, numbers in order whatever the case, then files by name.
         QCOMPARE(at(0, Browser::NameRole).toString(), QString("Card 2"));
-        QCOMPARE(at(1, Browser::NameRole).toString(), QString("Card 10"));
+        QCOMPARE(at(1, Browser::NameRole).toString(), QString("card 9"));
+        QCOMPARE(at(2, Browser::NameRole).toString(), QString("Card 10"));
+        browser.open(dir.path());    // the rest of the checks count from clip.mov
+        QDir(dir.path()).rmdir("card 9");
+        browser.refresh();
+        QCOMPARE(browser.rowCount(), 5);
         QCOMPARE(at(2, Browser::NameRole).toString(), QString("clip.mov"));
         QCOMPARE(at(4, Browser::NameRole).toString(), QString("notes.txt"));
         QVERIFY(at(0, Browser::IsDirRole).toBool());
@@ -406,7 +412,7 @@ private slots:
         QSignalSpy finished(&job, &Job::finished);
         QVERIFY(job.start());
         QVERIFY(finished.wait(60000));
-        QCOMPARE(finished.first().first().toBool(), true);
+        QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
         QCOMPARE(job.state(), QString("done"));
         QCOMPARE(job.percent(), 100.0);
         QVERIFY(QFileInfo::exists(dir.filePath("out/bars_review_tc.mp4")));

@@ -1,6 +1,9 @@
-# Builds the Arch package in a clean Arch Linux container, after the tests
-# pass. A pushed tag (v0.1.0) attaches the package to that release; running
-# it by hand just leaves the package as a download on the run.
+# Builds the Arch package for both architectures in clean containers, after
+# the tests pass. A pushed tag (v0.1.0) attaches the packages to that
+# release; running it by hand just leaves them as downloads on the run.
+#
+# Arch Linux only publishes x86_64 images; the aarch64 build uses
+# menci/archlinuxarm, rebuilt daily from Arch Linux ARM's own packages.
 name: Package
 
 on:
@@ -12,12 +15,25 @@ permissions:
   contents: write
 
 jobs:
-  x86_64:
-    runs-on: ubuntu-latest
-    container: archlinux:base-devel
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+            image: archlinux:base-devel
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            image: menci/archlinuxarm:base-devel
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    env:
+      PACKAGER: martythedev-tech <martythedev@gmail.com>
     steps:
+      # A font is needed for the burned-in timecode test; desktops always have one.
       - name: Install build and test dependencies
-        run: pacman -Syu --noconfirm --needed git qt6-base qt6-declarative qt6-wayland ffmpeg xdg-desktop-portal libnotify
+        run: pacman -Syu --noconfirm --needed git qt6-base qt6-declarative qt6-wayland ffmpeg xdg-desktop-portal libnotify ttf-dejavu
 
       - uses: actions/checkout@v4
 
@@ -33,12 +49,12 @@ jobs:
       - name: Package
         run: |
           cd pkgbuild
-          sudo -u builder makepkg -f --noconfirm
+          sudo -u builder --preserve-env=PACKAGER makepkg -f --noconfirm
           ls -l *.pkg.tar.*
 
       - uses: actions/upload-artifact@v4
         with:
-          name: encodr-x86_64
+          name: encodr-${{ matrix.arch }}
           path: pkgbuild/*.pkg.tar.*
 
       - name: Attach to the release
