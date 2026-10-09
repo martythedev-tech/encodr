@@ -3,10 +3,18 @@
 Convert video and audio with ffmpeg, and see everything about the job while it runs.
 
 Encodr is an Omarchy app: one window, keyboard first, following your theme.
-Drop in files, pick a preset, press Space.
+Find files in the built-in browser, pick a preset, press Space.
+
+Everything sits in one workspace, in three columns of panels you can resize:
+the browser and the queue; the picture being converted with its settings
+below; and the source details beside live stats. The layout is remembered.
 
 ## What it does
 
+- **A file browser built in.** Places and mounted drives (USB, camera cards, a
+  Mac drive through apfs-fuse) across the top; every video shows a thumbnail
+  and its length, picture size, codec and frame rate. Files that already have
+  a converted copy beside them get a tick. Double-click or drag to queue.
 - **A queue.** Add as many files (or folders) as you like; they convert one
   after another. Reorder, remove, undo, retry.
 - **Presets that adapt to the source.** Review copy (H.264), review copy with
@@ -42,6 +50,7 @@ Drop in files, pick a preset, press Space.
 | --- | --- |
 | Space | Start the queue, or pause / resume |
 | O | Add files (or drag them onto the window) |
+| Double-click | In the browser: open a folder, or queue a file |
 | V | Preview: output, source, or side by side |
 | C | Stop the current file |
 | R | Convert the selected file again |
@@ -52,7 +61,6 @@ Drop in files, pick a preset, press Space.
 | Delete | Remove the selected file |
 | X | Clear finished files |
 | Ctrl + Z / Ctrl + Shift + Z | Undo / redo removing |
-| 1 2 3 | Progress, Source, Settings |
 | ? | Shortcuts |
 | Q | Quit (asks first while converting) |
 

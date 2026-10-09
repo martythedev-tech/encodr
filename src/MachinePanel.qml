@@ -7,16 +7,19 @@ import "Format.js" as Format
 Rectangle {
     id: root
     property var tel
-    color: theme.surface
+    // Inside a panel of its own: no frame, no padding.
+    property bool flat: false
+    color: flat ? "transparent" : theme.surface
     radius: 6
-    border.width: 1
+    border.width: flat ? 0 : 1
     border.color: theme.border
-    implicitHeight: body.implicitHeight + 28
+    implicitHeight: body.implicitHeight + (flat ? 12 : 28)
 
     ColumnLayout {
         id: body
         anchors.fill: parent
-        anchors.margins: 14
+        anchors.margins: root.flat ? 0 : 14
+        anchors.topMargin: root.flat ? 8 : 14
         spacing: 10
 
         RowLayout {
@@ -76,7 +79,7 @@ Rectangle {
 
         GridLayout {
             Layout.fillWidth: true
-            columns: 3
+            columns: root.width > 560 ? 3 : 1
             columnSpacing: 24
             rowSpacing: 4
 

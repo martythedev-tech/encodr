@@ -21,7 +21,7 @@ Rectangle {
         ["Delete", "Remove the selected file from the queue"],
         ["X", "Clear finished files from the queue"],
         ["Ctrl + Z / Ctrl + Shift + Z", "Undo / redo removing"],
-        ["1  2  3", "Progress, Source and Settings tabs"],
+        ["Double-click", "In the browser: open a folder, or add a file to the queue"],
         ["?", "Show or hide this list"],
         ["Q", "Quit (asks first while converting)"]
     ]

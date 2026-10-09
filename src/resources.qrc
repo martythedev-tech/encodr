@@ -1,20 +1,23 @@
 <RCC>
     <qresource prefix="/">
         <file alias="Main.qml">Main.qml</file>
-        <file alias="ProgressPane.qml">ProgressPane.qml</file>
         <file alias="SourcePane.qml">SourcePane.qml</file>
         <file alias="SettingsPane.qml">SettingsPane.qml</file>
         <file alias="MachinePanel.qml">MachinePanel.qml</file>
         <file alias="Graph.qml">Graph.qml</file>
         <file alias="StatTile.qml">StatTile.qml</file>
         <file alias="HelpOverlay.qml">HelpOverlay.qml</file>
-        <file alias="PreviewPanel.qml">PreviewPanel.qml</file>
         <file alias="FrameView.qml">FrameView.qml</file>
         <file alias="UiButton.qml">UiButton.qml</file>
         <file alias="Panel.qml">Panel.qml</file>
         <file alias="Segmented.qml">Segmented.qml</file>
         <file alias="TabStrip.qml">TabStrip.qml</file>
         <file alias="Meter.qml">Meter.qml</file>
+        <file alias="Dock.qml">Dock.qml</file>
+        <file alias="ViewerPanel.qml">ViewerPanel.qml</file>
+        <file alias="BrowserPanel.qml">BrowserPanel.qml</file>
+        <file alias="QueuePanel.qml">QueuePanel.qml</file>
+        <file alias="StatsPanel.qml">StatsPanel.qml</file>
         <file alias="Format.js">Format.js</file>
     </qresource>
 </RCC>

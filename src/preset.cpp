@@ -212,11 +212,11 @@ QStringList colourFixArguments(const MediaInfo &info) {
     return {};
 }
 
-QStringList posterArguments(const MediaInfo &info, const QString &input, double at, const QString &jpeg) {
+QStringList posterArguments(const MediaInfo &info, const QString &input, double at, const QString &jpeg, int height) {
     QStringList a{"-nostdin", "-hide_banner", "-y", "-loglevel", "error"};
     a << colourFixArguments(info);
     a << "-ss" << QString::number(std::max(0.0, at), 'f', 2) << "-i" << input << "-frames:v" << "1"
-      << "-vf" << "scale=-2:360:flags=bilinear:out_range=full,format=yuvj420p" << "-q:v" << "4"
+      << "-vf" << QString("scale=-2:%1:flags=bilinear:out_range=full,format=yuvj420p").arg(height) << "-q:v" << "4"
       << "-update" << "1" << jpeg;
     return a;
 }

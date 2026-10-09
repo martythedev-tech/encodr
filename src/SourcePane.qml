@@ -12,36 +12,38 @@ ScrollView {
 
     component Row2: RowLayout {
         property string label
-        property string value
+        property var value
         property color valueColor: theme.foreground
         Layout.fillWidth: true
         spacing: 12
-        Text { text: parent.label; color: theme.dim; font.pixelSize: 12; Layout.preferredWidth: 140 }
-        Text { text: parent.value || "—"; color: parent.valueColor; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
+        Text { text: parent.label; color: theme.dim; font.pixelSize: 12; Layout.preferredWidth: 104 }
+        Text { text: parent.value || "—"; color: parent.valueColor; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap; font.features: { "tnum": 1 } }
     }
 
     component Section: Rectangle {
         default property alias content: inner.data
         property string title
         Layout.fillWidth: true
-        color: theme.surface
-        radius: 6
-        border.width: 1
-        border.color: theme.border
-        implicitHeight: inner.implicitHeight + 50
-        Text { x: 14; y: 13; text: parent.title.toUpperCase(); color: theme.dim; font.pixelSize: 11; font.weight: Font.DemiBold; font.letterSpacing: 0.8 }
+        // Flat inside its panel: a small-caps title over the rows.
+        color: "transparent"
+        Layout.alignment: Qt.AlignTop
+        implicitHeight: inner.implicitHeight + 26
+        Text { x: 0; y: 0; text: parent.title.toUpperCase(); color: theme.dim; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.8 }
         ColumnLayout {
             id: inner
-            x: 14
-            y: 36
-            width: parent.width - 28
+            x: 0
+            y: 22
+            width: parent.width
             spacing: 6
         }
     }
 
     ColumnLayout {
-        width: root.availableWidth
-        spacing: 10
+        x: 12
+        width: root.availableWidth - 24
+        spacing: 16
+
+        Item { implicitHeight: 0 }
 
         Text {
             visible: job !== null && job.state === "probing"

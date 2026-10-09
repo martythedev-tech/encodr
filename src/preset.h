@@ -58,7 +58,7 @@ Command buildCommand(const Preset &preset, const MediaInfo &info, const QString 
 QStringList colourFixArguments(const MediaInfo &info);
 
 // Arguments that write one small preview frame at `at` seconds to `jpeg`.
-QStringList posterArguments(const MediaInfo &info, const QString &input, double at, const QString &jpeg);
+QStringList posterArguments(const MediaInfo &info, const QString &input, double at, const QString &jpeg, int height = 360);
 
 // A shell-pasteable rendering of the command, for display and copying.
 QString shellQuote(const QStringList &arguments);

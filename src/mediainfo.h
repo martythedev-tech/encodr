@@ -59,6 +59,10 @@ struct MediaInfo {
 
 MediaInfo parseProbe(const QByteArray &json, const QString &path);
 
+// Video and audio files Encodr can take, judged by extension.
+bool isMediaFile(const QString &path);
+bool isAudioFile(const QString &path);
+
 // Plain-language findings about a source, shown before converting.
 // level is "fix" (handled automatically), "warn" or "info".
 struct Issue {

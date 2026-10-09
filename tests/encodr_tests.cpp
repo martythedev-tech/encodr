@@ -12,6 +12,7 @@
 #include "progress.h"
 #include "telemetry.h"
 #include "cyclecounter.h"
+#include "browser.h"
 
 #include <atomic>
 #include <thread>
@@ -248,6 +249,76 @@ private slots:
         if (best == 0)
             QSKIP("The kernel refused perf events (perf_event_paranoid?)");
         QVERIFY2(best > 300 && best < 6000, qPrintable(QString::number(best)));
+    }
+
+    void browserListsFoldersFirstAndMarksConverted() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg isn't installed");
+        QTemporaryDir dir, cache;
+        QDir(dir.path()).mkdir("Card 2");
+        QDir(dir.path()).mkdir("Card 10");
+        QProcess make;
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=3",
+                              "-c:v", "mpeg4", dir.filePath("clip.mov")});
+        QVERIFY(make.waitForFinished(30000) && make.exitCode() == 0);
+        writeFile(dir.filePath("clip_review.mp4"), "not really a video");
+        writeFile(dir.filePath("notes.txt"), "hello");
+        writeFile(dir.filePath(".clip_proxy.encodr-partial.mov"), "being written");
+
+        writeFile(cache.filePath("mounts"), "/dev/sda1 / ext4 rw 0 0\n");
+        Browser browser(cache.filePath("thumbs"), cache.filePath("mounts"));
+        browser.setOutputSuffixes({"_review", "_proxy"});
+        browser.open(dir.path());
+
+        auto at = [&](int row, int role) { return browser.data(browser.index(row), role); };
+        QCOMPARE(browser.rowCount(), 5);    // the hidden partial file isn't listed
+        // Folders first, numbers in order, then files by name.
+        QCOMPARE(at(0, Browser::NameRole).toString(), QString("Card 2"));
+        QCOMPARE(at(1, Browser::NameRole).toString(), QString("Card 10"));
+        QCOMPARE(at(2, Browser::NameRole).toString(), QString("clip.mov"));
+        QCOMPARE(at(4, Browser::NameRole).toString(), QString("notes.txt"));
+        QVERIFY(at(0, Browser::IsDirRole).toBool());
+        QVERIFY(!at(4, Browser::IsMediaRole).toBool());
+        QCOMPARE(browser.mediaCount(), 2);
+
+        // clip.mov has a review copy beside it; the review copy itself doesn't.
+        QVERIFY(at(2, Browser::ConvertedRole).toBool());
+        QCOMPARE(at(2, Browser::ConvertedNameRole).toString(), QString("clip_review.mp4"));
+        QVERIFY(!at(3, Browser::ConvertedRole).toBool());
+
+        // Details and a thumbnail arrive in the background, and are cached.
+        QTRY_VERIFY_WITH_TIMEOUT(at(2, Browser::ReadRole).toBool(), 20000);
+        QCOMPARE(at(2, Browser::DetailsRole).toString(), QString("0:03 · 320×180 · MPEG4 · 25p"));
+        QVERIFY(QFileInfo::exists(QUrl(at(2, Browser::ThumbRole).toString()).toLocalFile()));
+        QTRY_VERIFY_WITH_TIMEOUT(at(3, Browser::ReadRole).toBool(), 20000);
+        QCOMPARE(at(3, Browser::DetailsRole).toString(), QString("Can't read this file"));
+        QTRY_COMPARE_WITH_TIMEOUT(browser.pending(), 0, 5000);
+
+        Browser again(cache.filePath("thumbs"), cache.filePath("mounts"));
+        again.open(dir.path());
+        QVERIFY(again.data(again.index(2), Browser::ReadRole).toBool());    // straight from the cache
+        QCOMPARE(again.pending(), 0);
+
+        // A new output appearing marks its original.
+        QVERIFY(!at(3, Browser::ConvertedRole).toBool());
+        browser.up();
+        QCOMPARE(browser.path(), QFileInfo(dir.path()).absolutePath());
+    }
+
+    void browserPlacesIncludeDrives() {
+        QTemporaryDir cache;
+        writeFile(cache.filePath("mounts"),
+                  "/dev/sda1 / ext4 rw 0 0\n"
+                  "/dev/sdb1 /run/media/nobody/My\\040Drive exfat rw 0 0\n"
+                  "proc /proc proc rw 0 0\n");
+        Browser browser(cache.filePath("thumbs"), cache.filePath("mounts"));
+        const auto places = browser.places();
+        QVERIFY(places.size() >= 2);
+        QCOMPARE(places.first().toMap().value("name").toString(), QString("Home"));
+        QCOMPARE(places.last().toMap().value("path").toString(), QString("/"));
+        // The drive isn't really mounted here, so it's left out rather than shown broken.
+        for (const auto &p : places)
+            QVERIFY(p.toMap().value("path").toString() != "/run/media/nobody/My Drive");
     }
 
     void themeFallsBack() {

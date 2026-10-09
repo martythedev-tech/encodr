@@ -213,3 +213,21 @@ QVariantList issuesToVariant(const QList<Issue> &issues) {
         list.append(QVariantMap{{"level", i.level}, {"title", i.title}, {"detail", i.detail}});
     return list;
 }
+
+namespace {
+const QStringList kAudioExtensions = {"wav", "aif", "aiff", "flac", "mp3", "m4a"};
+const QStringList kVideoExtensions = {"mov", "mp4", "m4v", "mkv", "mxf", "avi", "mts", "m2ts", "ts", "mpg", "mpeg", "webm", "dv"};
+QString extensionOf(const QString &path) {
+    const qsizetype dot = path.lastIndexOf('.');
+    return dot < 0 ? QString() : path.mid(dot + 1).toLower();
+}
+}
+
+bool isMediaFile(const QString &path) {
+    const QString e = extensionOf(path);
+    return kVideoExtensions.contains(e) || kAudioExtensions.contains(e);
+}
+
+bool isAudioFile(const QString &path) {
+    return kAudioExtensions.contains(extensionOf(path));
+}

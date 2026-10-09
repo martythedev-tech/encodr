@@ -14,7 +14,8 @@ Item {
     readonly property Image back: showingA ? b : a
 
     function load() {
-        if (path === "")
+        // Stamp 0 means no frame has been written yet.
+        if (path === "" || stamp === 0)
             return;
         back.source = "file://" + path + "?" + stamp;
     }

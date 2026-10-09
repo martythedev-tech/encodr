@@ -20,8 +20,6 @@
 #include "filepicker.h"
 
 namespace {
-const QStringList kMediaExtensions = {"mov", "mp4", "m4v", "mkv", "mxf", "avi", "mts", "m2ts", "ts", "mpg", "mpeg",
-                                      "webm", "dv", "wav", "aif", "aiff", "flac", "mp3", "m4a"};
 
 QString slug(const QString &name) {
     QString s = name.toLower();
@@ -177,7 +175,7 @@ void Backend::addPaths(const QStringList &paths) {
         if (fi.isDir()) {
             const auto entries = QDir(path).entryInfoList(QDir::Files | QDir::Readable, QDir::Name);
             for (const auto &e : entries)
-                if (kMediaExtensions.contains(e.suffix().toLower()) && !e.fileName().startsWith('.'))
+                if (isMediaFile(e.fileName()) && !e.fileName().startsWith('.'))
                     files << e.absoluteFilePath();
         } else if (fi.isFile()) {
             files << fi.absoluteFilePath();
@@ -361,6 +359,8 @@ void Backend::startNext() {
 }
 
 void Backend::onJobFinished(Job *job, bool ok) {
+    if (ok)
+        emit outputWritten(job->outputPath());
     m_watchedPid = 0;
     m_telemetry->setProcess(0);
     if (ok) {

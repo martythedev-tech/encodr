@@ -101,6 +101,7 @@ signals:
     void settingsChanged();
     void queueChanged();
     void noticeChanged();
+    void outputWritten(const QString &path);
 
 private:
     void addJob(const QString &path);

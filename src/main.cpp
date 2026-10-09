@@ -7,16 +7,22 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QTimer>
+#include <QDir>
+#include <QFileInfo>
 #include <QUrl>
 
 #include "backend.h"
+#include "browser.h"
 #include "portalfilepicker.h"
 #include "theme.h"
 
 int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
     app.setApplicationName("encodr");
+    app.setOrganizationName("encodr");    // ~/.config/encodr/encodr.conf holds the layout
     app.setApplicationDisplayName("Encodr");
     app.setApplicationVersion("0.1.0");
 
@@ -42,9 +48,35 @@ int main(int argc, char *argv[]) {
     PortalFilePicker picker;
     Backend backend(&picker);
 
+    // The browser marks files that already have an output: anything named
+    // with a preset's suffix, beside the original or in Encodr's folders.
+    Browser browser;
+    auto syncOutputs = [&] {
+        QStringList suffixes;
+        for (const QVariant &p : backend.presets())
+            suffixes << p.toMap().value("suffix").toString();
+        browser.setOutputSuffixes(suffixes);
+        QStringList folders{QStandardPaths::writableLocation(QStandardPaths::MoviesLocation) + "/Encodr"};
+        if (!backend.outputFolder().isEmpty())
+            folders << backend.outputFolder();
+        browser.setOutputFolders(folders);
+    };
+    syncOutputs();
+    QObject::connect(&backend, &Backend::presetsChanged, &browser, syncOutputs);
+    QObject::connect(&backend, &Backend::settingsChanged, &browser, syncOutputs);
+    QObject::connect(&backend, &Backend::outputWritten, &browser, &Browser::refresh);
+
+    // Come back to the folder used last time.
+    QSettings state("encodr", "encodr");
+    const QString lastFolder = state.value("browser/folder").toString();
+    const QString videos = QStandardPaths::writableLocation(QStandardPaths::MoviesLocation);
+    browser.open(QFileInfo(lastFolder).isDir() ? lastFolder : QFileInfo(videos).isDir() ? videos : QDir::homePath());
+    QObject::connect(&browser, &Browser::pathChanged, &browser, [&] { state.setValue("browser/folder", browser.path()); });
+
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("backend", &backend);
+    engine.rootContext()->setContextProperty("browser", &browser);
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;
@@ -60,15 +92,13 @@ int main(int argc, char *argv[]) {
     // For development: ENCODR_SNAPSHOT=out.png renders the window to an image
     // after ENCODR_SNAPSHOT_DELAY ms (default 3000) and quits, so the look can
     // be checked offscreen without taking over the screen. ENCODR_START=1
-    // starts the queue first; ENCODR_TAB picks the tab (0-2).
+    // starts the queue first.
     const QString snapshot = qEnvironmentVariable("ENCODR_SNAPSHOT");
     if (!snapshot.isEmpty()) {
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         const QStringList size = qEnvironmentVariable("ENCODR_SNAPSHOT_SIZE", "1400x900").split('x');
         if (window && size.size() == 2)
             window->resize(size[0].toInt(), size[1].toInt());
-        if (window && qEnvironmentVariableIsSet("ENCODR_TAB"))
-            window->setProperty("tab", qEnvironmentVariableIntValue("ENCODR_TAB"));
         if (qEnvironmentVariableIntValue("ENCODR_START"))
             QTimer::singleShot(1500, &backend, &Backend::startQueue);
         const int delay = qEnvironmentVariableIsSet("ENCODR_SNAPSHOT_DELAY") ? qEnvironmentVariableIntValue("ENCODR_SNAPSHOT_DELAY") : 3000;
