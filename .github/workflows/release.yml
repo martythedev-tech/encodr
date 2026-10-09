@@ -1,0 +1,48 @@
+# Builds the Arch package in a clean Arch Linux container, after the tests
+# pass. A pushed tag (v0.1.0) attaches the package to that release; running
+# it by hand just leaves the package as a download on the run.
+name: Package
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  x86_64:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build and test dependencies
+        run: pacman -Syu --noconfirm --needed git qt6-base qt6-declarative qt6-wayland ffmpeg xdg-desktop-portal libnotify
+
+      - uses: actions/checkout@v4
+
+      # makepkg refuses to run as root.
+      - name: Make a build user
+        run: |
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Test
+        run: sudo -u builder bin/test
+
+      - name: Package
+        run: |
+          cd pkgbuild
+          sudo -u builder makepkg -f --noconfirm
+          ls -l *.pkg.tar.*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: encodr-x86_64
+          path: pkgbuild/*.pkg.tar.*
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: pkgbuild/*.pkg.tar.*
