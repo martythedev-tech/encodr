@@ -5,7 +5,8 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 mkdir -p "$ROOT/build"
 cd "$ROOT/build"
 
-qmake6 "$ROOT/encodr.pro"
+# QMAKE picks another Qt (the AppImage build uses the official binaries).
+"${QMAKE:-qmake6}" "$ROOT/encodr.pro"
 make -j"$(nproc)"
 
 echo "Built $ROOT/build/encodr"

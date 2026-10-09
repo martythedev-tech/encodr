@@ -18,6 +18,7 @@
         <file alias="BrowserPanel.qml">BrowserPanel.qml</file>
         <file alias="QueuePanel.qml">QueuePanel.qml</file>
         <file alias="StatsPanel.qml">StatsPanel.qml</file>
+        <file alias="Icon.qml">Icon.qml</file>
         <file alias="Format.js">Format.js</file>
     </qresource>
 </RCC>

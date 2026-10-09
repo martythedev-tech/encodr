@@ -53,11 +53,10 @@ Dock {
                         id: placeRow
                         anchors.centerIn: parent
                         spacing: 5
-                        Text {
-                            text: root.icons[modelData.kind] || root.icons.folder
+                        Icon {
+                            name: modelData.kind === "home" || modelData.kind === "drive" || modelData.kind === "computer" ? modelData.kind : "folder"
                             color: modelData.kind === "drive" ? theme.accent : theme.dim
-                            font.family: theme.mono
-                            font.pixelSize: 10
+                            size: 12
                             anchors.verticalCenter: parent.verticalCenter
                         }
                         Text {
@@ -85,8 +84,6 @@ Dock {
             Layout.bottomMargin: 6
             spacing: 6
             UiButton {
-                text: root.icons.up
-                font.family: theme.mono
                 kind: "ghost"
                 implicitWidth: 24
                 implicitHeight: 22
@@ -94,6 +91,7 @@ Dock {
                 rightPadding: 0
                 enabled: browser.canGoUp
                 onClicked: browser.up()
+                Icon { anchors.centerIn: parent; name: "up"; size: 13; color: parent.enabled ? theme.foreground : theme.dim }
             }
             Text {
                 text: browser.folderName
@@ -183,14 +181,13 @@ Dock {
                             asynchronous: true
                             sourceSize.height: 72
                         }
-                        Text {
+                        Icon {
                             anchors.centerIn: parent
                             visible: row.thumb === ""
-                            text: row.isDir ? root.icons.folder : row.isAudio ? root.icons.music : row.isMedia ? root.icons.film : root.icons.file
+                            name: row.isDir ? "folder" : row.isAudio ? "music" : row.isMedia ? "film" : "file"
                             color: row.isDir ? theme.accent : theme.dim
                             opacity: row.isMedia && !row.read ? 0.5 : 1
-                            font.family: theme.mono
-                            font.pixelSize: row.isMedia ? 14 : 12
+                            size: row.isMedia ? 16 : 14
                         }
                     }
 
@@ -215,12 +212,11 @@ Dock {
                         }
                     }
 
-                    Text {
+                    Icon {
                         visible: row.converted && !(mouse.containsMouse && row.isMedia)
-                        text: root.icons.check
+                        name: "check"
                         color: theme.good
-                        font.family: theme.mono
-                        font.pixelSize: 11
+                        size: 13
                         ToolTip.visible: checkMouse.containsMouse
                         ToolTip.text: "Already converted: " + row.convertedName
                         MouseArea { id: checkMouse; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.NoButton }

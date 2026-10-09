@@ -31,6 +31,13 @@ int main(int argc, char *argv[]) {
     app.setDesktopFileName("encodr");
     app.setWindowIcon(QIcon::fromTheme("encodr"));
 
+    // The AppImage carries its own ffmpeg and ffprobe beside the binary
+    // (distribution builds can lack H.264, or be too old for the live
+    // preview). Put them first on PATH so every child process finds them.
+    const QString here = QCoreApplication::applicationDirPath();
+    if (QFileInfo(here + "/ffmpeg").isExecutable() && QFileInfo(here + "/ffprobe").isExecutable())
+        qputenv("PATH", (here + ":" + qEnvironmentVariable("PATH")).toLocal8Bit());
+
     QCommandLineParser parser;
     parser.setApplicationDescription("Convert video and audio files with ffmpeg.");
     parser.addHelpOption();
