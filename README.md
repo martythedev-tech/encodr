@@ -27,7 +27,8 @@ Drop in files, pick a preset, press Space.
   their maximum (it warns when heat slows the CPU), temperatures and power
   draw from whatever sensors the kernel exposes.
 - **Pause and resume** a conversion exactly where it is. Sleep and lid-close
-  suspend are blocked while converting, and a notification says when it's done.
+  suspend are blocked while converting (not while paused, so a paused job can
+  wait through sleep), and a notification says when it's done.
 - **Safe with your files.** Originals are never touched. Output is written to a
   hidden partial file and renamed only when it's complete, so a failed or
   stopped conversion leaves nothing behind. Existing files are never overwritten.

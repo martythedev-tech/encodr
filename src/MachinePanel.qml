@@ -56,7 +56,6 @@ Rectangle {
                             height: parent.height * Math.min(1, modelData / 100)
                             radius: 3
                             color: modelData > 85 ? theme.warn : theme.accent
-                            Behavior on height { NumberAnimation { duration: 400 } }
                         }
                     }
                     Text {

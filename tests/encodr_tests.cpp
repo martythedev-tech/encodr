@@ -95,7 +95,7 @@ private slots:
         QVERIFY(joined.contains("-bsf:v prores_metadata=color_primaries=bt709:color_trc=bt709:colorspace=bt709"));
         QVERIFY(joined.indexOf("-bsf:v") < joined.indexOf("-i /x/in.mov"));
         QVERIFY(joined.contains("[0:a:0][0:a:1]join=inputs=2:channel_layout=stereo[a]"));
-        QVERIFY(joined.contains("-c:v libx264 -preset slow -crf 18"));
+        QVERIFY(joined.contains("-c:v libx264 -preset fast -crf 18"));
         QVERIFY(joined.contains("-maxrate 16000k -bufsize 32000k"));
         QVERIFY(joined.contains("-c:a aac -b:a 320k"));
         QVERIFY(joined.contains("-timecode 01:02:15:13"));

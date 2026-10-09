@@ -294,11 +294,15 @@ void Backend::toggleQueue() {
     for (Job *job : m_jobs) {
         if (job->state() == "running") {
             job->pause();
+            // A paused conversion uses no CPU, so let the machine sleep (and
+            // the lid close it) as usual; it carries on after waking.
+            setInhibit(false);
             emit queueChanged();
             return;
         }
         if (job->state() == "paused") {
             job->resume();
+            setInhibit(true);
             emit queueChanged();
             return;
         }

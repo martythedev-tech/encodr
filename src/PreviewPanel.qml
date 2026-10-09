@@ -39,11 +39,15 @@ Rectangle {
                 implicitWidth: liveText.implicitWidth + 12
                 implicitHeight: 18
                 Text { id: liveText; anchors.centerIn: parent; text: "LIVE"; color: theme.background; font.pixelSize: 10; font.bold: true }
-                SequentialAnimation on opacity {
+                // A blink once a second rather than a smooth pulse: an endless
+                // animation makes Qt redraw the whole window every frame, which
+                // took CPU away from ffmpeg for the whole conversion.
+                Timer {
+                    interval: 1000
+                    repeat: true
                     running: root.running && root.live
-                    loops: Animation.Infinite
-                    NumberAnimation { to: 0.45; duration: 900 }
-                    NumberAnimation { to: 1; duration: 900 }
+                    onTriggered: parent.opacity = parent.opacity < 1 ? 1 : 0.55
+                    onRunningChanged: parent.opacity = 1
                 }
             }
             Item { Layout.fillWidth: true }
