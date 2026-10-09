@@ -1,0 +1,13 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="Main.qml">Main.qml</file>
+        <file alias="ProgressPane.qml">ProgressPane.qml</file>
+        <file alias="SourcePane.qml">SourcePane.qml</file>
+        <file alias="SettingsPane.qml">SettingsPane.qml</file>
+        <file alias="MachinePanel.qml">MachinePanel.qml</file>
+        <file alias="Graph.qml">Graph.qml</file>
+        <file alias="StatTile.qml">StatTile.qml</file>
+        <file alias="HelpOverlay.qml">HelpOverlay.qml</file>
+        <file alias="Format.js">Format.js</file>
+    </qresource>
+</RCC>

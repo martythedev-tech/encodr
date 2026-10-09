@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Encodr
+GenericName=Video Converter
+Comment=Convert video and audio with every detail of the job on screen
+Exec=encodr %F
+Icon=encodr
+Terminal=false
+Categories=AudioVideo;Video;AudioVideoEditing;
+MimeType=video/quicktime;video/mp4;video/x-matroska;video/webm;video/x-msvideo;video/mp2t;application/mxf;audio/x-wav;audio/flac;
+Keywords=convert;transcode;encode;ffmpeg;prores;h264;
+StartupWMClass=encodr
