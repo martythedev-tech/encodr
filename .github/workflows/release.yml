@@ -88,7 +88,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       QT_VERSION: "6.11.3"
-      FFMPEG: ffmpeg-n9.0-latest-${{ matrix.ffmpeg }}-gpl-9.0
+      FFMPEG: ffmpeg-n9.0-latest-${{ matrix.ffmpeg }}-gpl-shared-9.0
     steps:
       - uses: actions/checkout@v4
 
@@ -109,7 +109,7 @@ jobs:
           python3 -m aqt install-qt --outputdir "$HOME/Qt" $host desktop "$QT_VERSION" ${{ matrix.qt_arch }}
           echo "QMAKE=$(ls -d "$HOME"/Qt/"$QT_VERSION"/*/bin/qmake)" >> "$GITHUB_ENV"
 
-      - name: Fetch a static ffmpeg
+      - name: Fetch ffmpeg
         run: |
           curl -fsSL -o ffmpeg.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$FFMPEG.tar.xz"
           tar -xf ffmpeg.tar.xz -C "$RUNNER_TEMP"
