@@ -50,6 +50,10 @@ public:
     // Each graphics card: {name, busy, encoder, mhz, maxMhz, celsius, watts},
     // -1 where the driver doesn't say.
     QVariantList gpus() const { return m_gpus; }
+    // The card a GPU job runs on: its entry from gpus(), or empty when the
+    // card publishes nothing. `engine` is nvenc, qsv or vaapi; `device` the
+    // VA-API render node (/dev/dri/renderD128).
+    Q_INVOKABLE QVariantMap gpuFor(const QString &engine, const QString &device) const;
 
     // What `nvidia-smi --query-gpu=... --format=csv,noheader,nounits` prints,
     // as GPU entries (used directly by tests).

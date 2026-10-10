@@ -45,11 +45,29 @@ linuxdeploy --appdir "$APPDIR" \
     --icon-file "$ROOT/pkgbuild/encodr.svg" \
     --plugin qt
 
+# The Qt plugin brings the Wayland platform but not its EGL client
+# integration; without it Qt Quick gets no OpenGL on Wayland and the window
+# never opens ("Failed to create RHI").
+mkdir -p "$APPDIR/usr/plugins/wayland-graphics-integration-client"
+cp "$QT_PLUGINS"/wayland-graphics-integration-client/*.so "$APPDIR/usr/plugins/wayland-graphics-integration-client/"
+patchelf --set-rpath '$ORIGIN/../../lib' "$APPDIR"/usr/plugins/wayland-graphics-integration-client/*.so
+# Qt's xcb plugin loads libxcb-cursor at run time (Qt 6.5+), so no
+# dependency scan finds it, and many desktops don't have it.
+XCB_CURSOR="$(ldconfig -p | sed -n 's/.*libxcb-cursor\.so\.0 .*=> //p' | head -1)"
+linuxdeploy --appdir "$APPDIR" \
+    --deploy-deps-only "$APPDIR/usr/plugins/wayland-graphics-integration-client" \
+    --library "$XCB_CURSOR"
+
 # Encodr always uses the Material style; the other Quick Controls styles
 # come along with the module but are never loaded.
 for style in Imagine Universal Fusion FluentWinUI3; do
     rm -rf "$APPDIR/usr/qml/QtQuick/Controls/$style"
     rm -f "$APPDIR"/usr/lib/libQt6QuickControls2"$style"*.so*
+done
+
+# Both of these were once missing and the window didn't open on Ubuntu.
+for need in usr/plugins/wayland-graphics-integration-client/libqt-plugin-wayland-egl.so usr/lib/libxcb-cursor.so.0; do
+    [ -e "$APPDIR/$need" ] || { echo "AppDir is missing $need" >&2; exit 1; }
 done
 
 linuxdeploy --appdir "$APPDIR" --output appimage

@@ -187,10 +187,25 @@ jobs:
           test -s clip_review.mp4
           squashfs-root/usr/bin/ffprobe -v error -show_entries stream=codec_name -of csv=p=0 clip_review.mp4
 
+      # A real window on a real (virtual) X server with software OpenGL, which
+      # offscreen never exercises: this is where missing plugins show up.
+      - name: Open a window on X11
+        run: |
+          if command -v apt-get >/dev/null; then
+            DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb libgl1-mesa-dri
+          else
+            dnf install -y xorg-x11-server-Xvfb mesa-dri-drivers
+          fi
+          Xvfb :99 -screen 0 1600x1000x24 &
+          sleep 2
+          DISPLAY=:99 QT_QPA_PLATFORM=xcb QT_FORCE_STDERR_LOGGING=1 ENCODR_SNAPSHOT="$PWD/window-x11.png" \
+            HOME="$PWD/home" XDG_RUNTIME_DIR=/tmp timeout 120 squashfs-root/AppRun
+          test -s window-x11.png
+
       - uses: actions/upload-artifact@v4
         with:
           name: window-${{ matrix.arch }}-${{ strategy.job-index }}
-          path: window.png
+          path: window*.png
 
   release:
     needs: [package, try]

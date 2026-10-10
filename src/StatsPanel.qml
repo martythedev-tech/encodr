@@ -13,10 +13,23 @@ Dock {
     readonly property bool done: job !== null && job.state === "done"
     readonly property var info: job ? job.info : ({})
     readonly property var hist: job ? job.history : ({})
+    // A GPU job's card and its live numbers (empty when the card publishes none).
+    readonly property bool usesGpu: job !== null && job.engine !== "cpu"
+    readonly property var gpu: usesGpu && tel.gpus ? tel.gpuFor(job.engine, job.engineDevice) : ({})
+    readonly property string gpuName: !usesGpu ? "" : gpu.name ? gpu.name
+                                      : job.engine === "nvenc" ? "NVIDIA GPU" : job.engine === "qsv" ? "Intel GPU" : "VA-API"
 
     title: "Stats"
     header: [
         Item { Layout.fillWidth: true },
+        Text {
+            visible: dock.usesGpu
+            text: "ON THE GPU · " + dock.gpuName.toUpperCase()
+            color: theme.accent
+            font.pixelSize: 10
+            font.weight: Font.DemiBold
+            font.letterSpacing: 0.5
+        },
         Text {
             visible: dock.tel.throttled
             text: "SLOWED BY HEAT" + (dock.tel.clocksMeasured ? " · " + Math.round(dock.tel.clockShare * 100) + "%" : "")
@@ -38,6 +51,8 @@ Dock {
         readonly property bool done: dock.done
         readonly property var info: dock.info
         readonly property var hist: dock.hist
+        readonly property bool usesGpu: dock.usesGpu
+        readonly property var gpu: dock.gpu
 
         ColumnLayout {
             x: 10
@@ -81,12 +96,38 @@ Dock {
                         return root.done ? share + " " + Format.bytes(info.size) : "→ " + Format.bytes(job.projectedSize) + " projected · " + share;
                     }
                 }
-                StatTile { compact: true; label: "Encoder CPU"; value: root.live ? Format.number(job.cpu, 0) + "%" : job && job.peakCpu > 0 ? Format.number(job.peakCpu, 0) + "%" : "—"
-                       detail: root.live ? (backend.runningCount > 1 ? "all " + backend.runningCount + " files " + Format.number(tel.processCpu, 0) + "% · " : "of all " + tel.coreCount + " cores · ")
+                StatTile { compact: true; label: root.usesGpu ? "CPU use" : "Encoder CPU"; value: root.live ? Format.number(job.cpu, 0) + "%" : job && job.peakCpu > 0 ? Format.number(job.peakCpu, 0) + "%" : "—"
+                       detail: root.usesGpu ? "decoding for the GPU" + (job.peakCpu > 0 ? " · peak " + Format.number(job.peakCpu, 0) + "%" : "")
+                               : root.live ? (backend.runningCount > 1 ? "all " + backend.runningCount + " files " + Format.number(tel.processCpu, 0) + "% · " : "of all " + tel.coreCount + " cores · ")
                                            + "peak " + Format.number(job.peakCpu, 0) + "%" : job && job.peakCpu > 0 ? "peak" : "" }
                 StatTile { compact: true; label: "Energy used"; value: job && job.energyWh > 0 ? Format.number(job.energyWh, job.energyWh < 10 ? 2 : 1) + " Wh" : "—"
                            detail: tel.systemWatts > 0 ? "whole computer now " + Format.number(tel.systemWatts, 1) + " W" : "" }
+                // The card doing the work, in place of the CPU's clock.
+                StatTile { compact: true
+                    visible: root.usesGpu
+                    label: "GPU"
+                    value: {
+                        const g = root.gpu;
+                        if (!root.live)
+                            return dock.gpuName;
+                        if (g.busy >= 0)
+                            return Format.number(g.busy, 0) + "% busy";
+                        return g.mhz > 0 ? Format.number(g.mhz / 1000, 2) + " GHz" : "working";
+                    }
+                    detail: {
+                        if (!root.live)
+                            return root.done ? "did the encoding" : "will do the encoding";
+                        const g = root.gpu, parts = [dock.gpuName];
+                        if (root.live && g.encoder >= 0) parts.push("encoder " + Format.number(g.encoder, 0) + "%");
+                        if (root.live && g.mhz > 0 && g.maxMhz > 0)
+                            parts.push(g.busy >= 0 ? Format.number(g.mhz / 1000, 2) + " / " + Format.number(g.maxMhz / 1000, 2) + " GHz"
+                                                   : "of " + Format.number(g.maxMhz / 1000, 2) + " GHz");
+                        if (root.live && g.celsius > 0) parts.push(Format.number(g.celsius, 0) + " °C");
+                        return parts.join(" · ");
+                    }
+                }
                 StatTile { compact: true;
+                    visible: !root.usesGpu
                     label: "CPU clock"
                     value: root.live && tel.clocksMeasured ? Math.round(tel.clockShare * 100) + "%"
                            : job && job.lowestClockShare > 0 ? Math.round(job.lowestClockShare * 100) + "%" : "—"

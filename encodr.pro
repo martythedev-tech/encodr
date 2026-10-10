@@ -16,7 +16,8 @@ HEADERS += \
     src/cyclecounter.h \
     src/browser.h \
     src/hardware.h \
-    src/theme.h
+    src/theme.h \
+    src/appmenu.h
 
 SOURCES += \
     src/main.cpp \
@@ -30,6 +31,7 @@ SOURCES += \
     src/cyclecounter.cpp \
     src/browser.cpp \
     src/hardware.cpp \
-    src/theme.cpp
+    src/theme.cpp \
+    src/appmenu.cpp
 
 RESOURCES += src/resources.qrc

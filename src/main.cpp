@@ -14,6 +14,7 @@
 #include <QFileInfo>
 #include <QUrl>
 
+#include "appmenu.h"
 #include "backend.h"
 #include "browser.h"
 #include "hardware.h"
@@ -30,7 +31,9 @@ int main(int argc, char *argv[]) {
     // Matches the window to encodr.desktop, so the compositor (Wayland app_id)
     // and the launcher pick up the installed icon.
     app.setDesktopFileName("encodr");
-    app.setWindowIcon(QIcon::fromTheme("encodr"));
+    // The bundled icon when no icon theme has it (an AppImage not yet in the
+    // app menu).
+    app.setWindowIcon(QIcon::fromTheme("encodr", QIcon(":/encodr.svg")));
 
     // The AppImage carries its own ffmpeg and ffprobe beside the binary
     // (distribution builds can lack H.264, or be too old for the live
@@ -85,10 +88,13 @@ int main(int argc, char *argv[]) {
     browser.open(QFileInfo(lastFolder).isDir() ? lastFolder : QFileInfo(videos).isDir() ? videos : QDir::homePath());
     QObject::connect(&browser, &Browser::pathChanged, &browser, [&] { state.setValue("browser/folder", browser.path()); });
 
+    // Before the engine, so it outlives the QML that reads it.
+    AppMenu appMenu;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("backend", &backend);
     engine.rootContext()->setContextProperty("browser", &browser);
+    engine.rootContext()->setContextProperty("appMenu", &appMenu);
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;

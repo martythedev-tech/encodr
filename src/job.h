@@ -32,6 +32,7 @@ class Job : public QObject {
     Q_PROPERTY(QString outputPath READ outputPath NOTIFY presetChanged)
     Q_PROPERTY(QString commandLine READ commandLine NOTIFY presetChanged)
     Q_PROPERTY(QString engine READ engine NOTIFY presetChanged)
+    Q_PROPERTY(QString engineDevice READ engineDevice NOTIFY presetChanged)
     Q_PROPERTY(QStringList notes READ notes NOTIFY presetChanged)
 
     Q_PROPERTY(double percent READ percent NOTIFY statsChanged)
@@ -133,6 +134,7 @@ public:
     // "vaapi"), chosen by the backend from what the machine has.
     void setEngine(const QString &engine, const QString &device = {});
     QString engine() const { return m_engine; }
+    QString engineDevice() const { return m_engineDevice; }
     // The preset as it will actually run, with the encoder filled in.
     Preset runPreset() const;
     void probe();

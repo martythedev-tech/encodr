@@ -59,11 +59,15 @@ QStringList Hardware::testArguments(const QString &id, const QString &codec, con
     if (id == "vaapi")
         a << "-vaapi_device" << device;
     a << "-f" << "lavfi" << "-i" << "color=black:size=320x240:rate=25:duration=0.4";
+    // Test what real encodes ask for: HEVC is always 10-bit Main 10, which
+    // older GPUs (AMD before VCN, for one) can't do even though 8-bit works.
+    const bool hevc = codec == "hevc";
+    const QString format = hevc ? "p010le" : "nv12";
     if (id == "vaapi")
-        a << "-vf" << "format=nv12,hwupload";
-    else if (id == "qsv")
-        a << "-vf" << "format=nv12";
-    a << "-c:v" << encoderName(id, codec) << "-f" << "null" << "-";
+        a << "-vf" << "format=" + format + ",hwupload";
+    else
+        a << "-vf" << "format=" + format;
+    a << "-c:v" << encoderName(id, codec) << "-profile:v" << (hevc ? "main10" : "high") << "-f" << "null" << "-";
     return a;
 }
 

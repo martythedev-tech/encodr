@@ -14,6 +14,7 @@
 #include "cyclecounter.h"
 #include "browser.h"
 #include "hardware.h"
+#include "appmenu.h"
 
 #include <atomic>
 #include <thread>
@@ -219,6 +220,57 @@ private slots:
         QVERIFY(!t.clocksMeasured());   // no PMUs in the fake machine
     }
 
+    void appImageOffersAnAppMenuEntry() {
+        QTemporaryDir home, system, config;
+        const QString entry = home.filePath("applications/encodr.desktop");
+
+        // Not an AppImage, or installed system-wide: nothing to offer.
+        QVERIFY(!AppMenu({}, home.path(), {system.path()}, config.path()).offer());
+        writeFile(system.filePath("applications/encodr.desktop"), "[Desktop Entry]\n");
+        QVERIFY(!AppMenu("/apps/Encodr.AppImage", home.path(), {system.path()}, config.path()).offer());
+
+        AppMenu menu("/apps/Encodr.AppImage", home.path(), {home.filePath("none")}, config.path());
+        QVERIFY(menu.offer());
+        QVERIFY(menu.add());
+        QVERIFY(!menu.offer());
+        QVERIFY(QFileInfo(home.filePath("icons/hicolor/scalable/apps/encodr.svg")).size() > 0);
+        QFile f(entry);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QByteArray text = f.readAll();
+        QVERIFY(text.contains("Exec=\"/apps/Encodr.AppImage\" %F\n"));
+        QVERIFY(text.contains("Icon=encodr\n"));
+        f.close();
+
+        // A newer AppImage elsewhere: the entry follows it, without asking.
+        AppMenu moved("/new/Encodr-0.3.0.AppImage", home.path(), {home.filePath("none")}, config.path());
+        QVERIFY(!moved.offer());
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QVERIFY(f.readAll().contains("Exec=\"/new/Encodr-0.3.0.AppImage\" %F"));
+        f.close();
+
+        // Declined once stays declined.
+        QTemporaryDir home2;
+        AppMenu ask("/apps/Encodr.AppImage", home2.path(), {home2.filePath("none")}, config.path());
+        ask.decline();
+        QVERIFY(!AppMenu("/apps/Encodr.AppImage", home2.path(), {home2.filePath("none")}, config.path()).offer());
+    }
+
+    void clockPoliciesSortByNumber() {
+        QTemporaryDir sys, proc;
+        writeFile(proc.filePath("stat"), "cpu  100 0 100 800 0 0 0 0 0 0\n");
+        for (int n : {0, 1, 2, 10, 11}) {
+            const QString base = sys.filePath(QString("devices/system/cpu/cpufreq/policy%1/").arg(n));
+            writeFile(base + "scaling_cur_freq", "2000000\n");
+            writeFile(base + "cpuinfo_max_freq", "4800000\n");
+            writeFile(base + "related_cpus", QByteArray::number(n) + "\n");
+        }
+        Telemetry t(sys.path(), proc.path());
+        QStringList order;
+        for (const QVariant &c : t.clocks())
+            order << c.toMap().value("cpus").toString();
+        QCOMPARE(order, (QStringList{"0", "1", "2", "10", "11"}));
+    }
+
     void cpuListsParse() {
         QCOMPARE(CycleCounter::parseCpuList("4-7"), (QList<int>{4, 5, 6, 7}));
         QCOMPARE(CycleCounter::parseCpuList("0 1 2 3"), (QList<int>{0, 1, 2, 3}));
@@ -385,7 +437,9 @@ private slots:
 
         const QString vaapi = Hardware::testArguments("vaapi", "hevc", "/dev/dri/renderD128").join(' ');
         QVERIFY(vaapi.contains("-vaapi_device /dev/dri/renderD128"));
-        QVERIFY(vaapi.contains("-vf format=nv12,hwupload -c:v hevc_vaapi -f null -"));
+        QVERIFY(vaapi.contains("-vf format=p010le,hwupload -c:v hevc_vaapi -profile:v main10 -f null -"));
+        const QString h264 = Hardware::testArguments("qsv", "h264", {}).join(' ');
+        QVERIFY(h264.contains("-vf format=nv12 -c:v h264_qsv -profile:v high -f null -"));
     }
 
     void gpuEncodingIsOffUntilSwitchedOn() {
@@ -509,6 +563,14 @@ private slots:
         QCOMPARE(intel["name"].toString(), QString("Intel GPU"));
         QCOMPARE(intel["mhz"].toDouble(), 1150.0);
         QCOMPARE(intel["busy"].toDouble(), -1.0);
+
+        // A VA-API job finds its card through the render node's device.
+        QDir().mkpath(sys.filePath("class/drm/renderD129"));
+        QVERIFY(QFile::link(sys.filePath("class/drm/card0/device"), sys.filePath("class/drm/renderD129/device")));
+        QCOMPARE(t.gpuFor("vaapi", "/dev/dri/renderD129")["name"].toString(), QString("AMD GPU"));
+        QCOMPARE(t.gpuFor("qsv", {})["name"].toString(), QString("Intel GPU"));
+        QVERIFY(t.gpuFor("vaapi", "/dev/dri/renderD128").isEmpty());
+        QVERIFY(t.gpuFor("nvenc", {}).isEmpty());
     }
 
     void themeFallsBack() {

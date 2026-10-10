@@ -20,5 +20,7 @@
         <file alias="StatsPanel.qml">StatsPanel.qml</file>
         <file alias="Icon.qml">Icon.qml</file>
         <file alias="Format.js">Format.js</file>
+        <file alias="encodr.svg">../pkgbuild/encodr.svg</file>
+        <file alias="encodr.desktop">../pkgbuild/encodr.desktop</file>
     </qresource>
 </RCC>

@@ -1,8 +1,10 @@
 #include "telemetry.h"
+#include <algorithm>
 
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QRegularExpression>
 #include <QProcess>
 #include <QStandardPaths>
@@ -125,7 +127,11 @@ void Telemetry::sampleClocks() {
     bool requestedLow = false;
 
     QDir dir(m_sys + "/devices/system/cpu/cpufreq");
-    const auto policies = dir.entryList({"policy*"}, QDir::Dirs, QDir::Name);
+    // By number: policy2 before policy10, which a name sort gets wrong.
+    auto policies = dir.entryList({"policy*"}, QDir::Dirs);
+    std::sort(policies.begin(), policies.end(), [](const QString &a, const QString &b) {
+        return a.mid(6).toInt() < b.mid(6).toInt();
+    });
     for (const auto &policy : policies) {
         const QString base = dir.filePath(policy);
         double cur = readFile(base + "/scaling_cur_freq").toDouble() / 1000.0;
@@ -229,6 +235,7 @@ QVariantList Telemetry::parseNvidiaSmi(const QByteArray &output, bool withEncode
         g["maxMhz"] = numberOr(f[i++]);
         g["celsius"] = numberOr(f[i++]);
         g["watts"] = numberOr(f[i++]);
+        g["vendor"] = QStringLiteral("nvidia");
         gpus << g;
     }
     return gpus;
@@ -280,9 +287,10 @@ void Telemetry::sampleGpus() {
             if (line.startsWith("DRIVER="))
                 driver = QString::fromUtf8(line.mid(7));
         double busy = -1, mhz = -1, maxMhz = -1, celsius = -1, watts = -1;
-        QString label;
+        QString label, vendor = "intel";
         if (driver == "amdgpu") {
             label = "AMD GPU";
+            vendor = "amd";
             busy = numberOr(readFile(device + "/gpu_busy_percent"));
             // "0: 500Mhz", "1: 2250Mhz *": the starred level is the current one.
             for (const QByteArray &line : readFile(device + "/pp_dpm_sclk").split('\n')) {
@@ -322,8 +330,25 @@ void Telemetry::sampleGpus() {
         }
         if (busy < 0 && mhz < 0)
             continue;
+        // The PCI device ties this card to its render node (renderD128 and
+        // card1 are the same device), so a VA-API job can find its GPU.
         m_drmGpus << QVariantMap{{"name", label}, {"busy", busy}, {"encoder", -1.0}, {"mhz", mhz},
-                                 {"maxMhz", maxMhz}, {"celsius", celsius}, {"watts", watts}};
+                                 {"maxMhz", maxMhz}, {"celsius", celsius}, {"watts", watts},
+                                 {"vendor", vendor}, {"pci", QFileInfo(device).canonicalFilePath()}};
     }
     m_gpus = m_nvidiaGpus + m_drmGpus;
+}
+
+QVariantMap Telemetry::gpuFor(const QString &engine, const QString &device) const {
+    QString pci;
+    if (engine == "vaapi" && !device.isEmpty())
+        pci = QFileInfo(m_sys + "/class/drm/" + QFileInfo(device).fileName() + "/device").canonicalFilePath();
+    for (const QVariant &v : m_gpus) {
+        const QVariantMap g = v.toMap();
+        const QString vendor = g.value("vendor").toString();
+        if ((engine == "nvenc" && vendor == "nvidia") || (engine == "qsv" && vendor == "intel")
+            || (engine == "vaapi" && !pci.isEmpty() && g.value("pci").toString() == pci))
+            return g;
+    }
+    return {};
 }

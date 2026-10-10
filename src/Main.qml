@@ -238,6 +238,14 @@ ApplicationWindow {
                         return "Press ? for shortcuts";
                     }
                 }
+                // An AppImage isn't in the app menu until it's added.
+                RowLayout {
+                    visible: appMenu.offer
+                    spacing: 6
+                    Text { text: "Add Encodr to your app menu?"; color: theme.dim; font.pixelSize: 11 }
+                    UiButton { kind: "primary"; text: "Add"; implicitHeight: 22; onClicked: appMenu.add() }
+                    UiButton { kind: "ghost"; text: "No thanks"; implicitHeight: 22; onClicked: appMenu.decline() }
+                }
                 Text {
                     visible: backend.inhibiting
                     text: "Sleep blocked while converting"
