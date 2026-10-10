@@ -79,6 +79,26 @@ Encodr appears in the app launcher (Super + Space). Pacman pulls in what it
 needs (Qt 6, ffmpeg); `sudo pacman -S mediainfo` adds the full technical
 report.
 
+### Other Linux distributions
+
+Download the AppImage for your machine from the same release, make it
+executable, and run it:
+
+```sh
+chmod +x Encodr-*.AppImage
+./Encodr-*.AppImage
+```
+
+It carries everything it needs, ffmpeg included, so nothing else has to be
+installed. Every release is started on stock Ubuntu, Debian and Fedora and
+converts a clip before it's published. The x86_64 AppImage runs on Ubuntu
+22.04, Debian 12, Fedora 36 or newer; the aarch64 one on Ubuntu 24.04,
+Debian 13, Fedora 39 or newer. To have it in your app menu, use
+[Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) or
+[AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher).
+
+Outside Omarchy, Encodr uses its own dark theme.
+
 ## Build
 
 ```sh

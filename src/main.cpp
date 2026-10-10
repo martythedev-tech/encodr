@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
     app.setApplicationName("encodr");
     app.setOrganizationName("encodr");    // ~/.config/encodr/encodr.conf holds the layout
     app.setApplicationDisplayName("Encodr");
-    app.setApplicationVersion("0.1.0");
+    app.setApplicationVersion("0.2.0");
 
     // Matches the window to encodr.desktop, so the compositor (Wayland app_id)
     // and the launcher pick up the installed icon.

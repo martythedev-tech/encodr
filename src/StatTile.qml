@@ -13,10 +13,12 @@ Rectangle {
     radius: 6
     border.width: 1
     border.color: theme.border
-    implicitHeight: compact ? 56 : 66
+    // Sized to the text, so taller fonts on other systems still fit.
+    implicitHeight: Math.max(compact ? 56 : 66, lines.implicitHeight + (compact ? 14 : 18))
     Layout.fillWidth: true
 
     ColumnLayout {
+        id: lines
         anchors.fill: parent
         anchors.leftMargin: root.compact ? 10 : 12
         anchors.rightMargin: root.compact ? 10 : 12
