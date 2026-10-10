@@ -78,8 +78,8 @@ Dock {
                            detail: job && job.averageSpeed > 0 ? "average " + Format.number(job.averageSpeed, 2) + "× real time" : "" }
                 StatTile { compact: true; label: "Frames"; value: job ? Format.thousands(job.frame) + (job.totalFrames > 0 ? " / " + Format.thousands(job.totalFrames) : "") : "—"
                            detail: job && job.fps > 0 ? Format.number(job.fps, 1) + " fps now · " + Format.number(job.averageFps, 1) + " avg" : "" }
-                StatTile { compact: true; label: "Converted"; value: job ? Format.duration(job.outTime) + " / " + Format.duration(info.duration) : "—"
-                           detail: "of the source's running time" }
+                StatTile { compact: true; label: "Converted"; value: job ? Format.duration(job.outTime) + " / " + Format.duration(job.trimOut - job.trimIn) : "—"
+                           detail: job && job.trimmed ? "of the trimmed part" : "of the source's running time" }
                 StatTile { compact: true; label: "Bitrate"; value: job ? Format.bitrate(root.live ? job.bitrateKbps : job.averageBitrateKbps) : "—"
                            detail: job && job.averageBitrateKbps > 0 ? "average " + Format.bitrate(job.averageBitrateKbps) + " · source " + Format.bps(info.bitrate) : "" }
                 StatTile { compact: true;

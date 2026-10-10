@@ -12,6 +12,20 @@ function duration(seconds) {
     return h > 0 ? h + ":" + mm + ":" + ss : mm + ":" + ss;
 }
 
+// To a tenth of a second, for in and out points: "1:02.4", "1:02:03.5".
+function precise(seconds) {
+    if (seconds === undefined || seconds === null || seconds < 0 || !isFinite(seconds))
+        return "—";
+    var tenths = Math.round(seconds * 10);
+    var s = Math.floor(tenths / 10);
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var r = s % 60;
+    var mm = (h > 0 && m < 10 ? "0" : "") + m;
+    var ss = (r < 10 ? "0" : "") + r + "." + (tenths % 10);
+    return h > 0 ? h + ":" + mm + ":" + ss : mm + ":" + ss;
+}
+
 // "1 h 25 min", "4 min 10 s", "12 s"
 function words(seconds) {
     if (seconds === undefined || seconds === null || seconds < 0 || !isFinite(seconds))

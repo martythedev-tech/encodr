@@ -1,5 +1,6 @@
 #include "preset.h"
 
+#include <QFileInfo>
 #include <QHash>
 #include <QRegularExpression>
 #include <cmath>
@@ -99,6 +100,28 @@ QList<Preset> builtinPresets() {
     master.video = "prores_422";
     add(master);
 
+    // No re-encoding: seconds instead of minutes, and not a bit of quality
+    // lost. With in and out points it's a lossless cut.
+    Preset copy;
+    copy.id = "copy";
+    copy.suffix = "_copy";
+    copy.name = "Cut or copy, no re-encoding (same file type)";
+    copy.description = "Keeps every stream exactly as it is. Set in and out points for a lossless cut; "
+                       "cuts start on the nearest keyframe.";
+    copy.container = "source";
+    copy.video = "copy";
+    copy.audio = "copy";
+    add(copy);
+
+    Preset rewrap = copy;
+    rewrap.id = "rewrap-mp4";
+    rewrap.suffix = "_rewrap";
+    rewrap.name = "Rewrap to MP4, no re-encoding";
+    rewrap.description = "Moves H.264 or HEVC video and AAC audio into an MP4 that plays anywhere, in seconds, "
+                         "without touching the picture or sound.";
+    rewrap.container = "mp4";
+    add(rewrap);
+
     Preset wav;
     wav.id = "wav";
     wav.suffix = "";
@@ -136,13 +159,13 @@ QString presetProblem(const Preset &p) {
     const bool prores = p.video.startsWith("prores");
     const bool pcm = p.audio.startsWith("pcm");
     if (p.container == "wav") {
-        if (!p.audioOnly() || !pcm)
+        if (!p.audioOnly() || !(pcm || p.copiesAudio()))
             return "WAV holds uncompressed audio only.";
     } else if (p.container == "flac") {
-        if (!p.audioOnly() || p.audio != "flac")
+        if (!p.audioOnly() || (p.audio != "flac" && !p.copiesAudio()))
             return "A .flac file holds FLAC audio only.";
     } else if (p.container == "m4a") {
-        if (!p.audioOnly() || (p.audio != "aac" && p.audio != "alac"))
+        if (!p.audioOnly() || (p.audio != "aac" && p.audio != "alac" && !p.copiesAudio()))
             return "An .m4a file holds AAC or ALAC audio only.";
     } else if (p.container == "mp4") {
         if (prores || p.video == "vp9")
@@ -155,13 +178,74 @@ QString presetProblem(const Preset &p) {
         if (p.audio == "opus" || p.audio == "flac" || p.audio == "mp3")
             return "Use AAC, ALAC or uncompressed audio in MOV.";
     } else if (p.container == "webm") {
-        if (p.video != "vp9" && p.video != "none")
+        if (p.video != "vp9" && p.video != "none" && !p.copiesVideo())
             return "WebM holds VP9 video only.";
-        if (p.audio != "opus" && p.audio != "none")
+        if (p.audio != "opus" && p.audio != "none" && !p.copiesAudio())
             return "WebM holds Opus audio only.";
     }
     if (p.audioOnly() && p.audio == "none")
         return "This preset has neither video nor audio.";
+    return {};
+}
+
+QString containerFor(const Preset &p, const MediaInfo &info) {
+    if (p.container != "source")
+        return p.container;
+    const QString ext = QFileInfo(info.path).suffix().toLower();
+    return ext.isEmpty() ? QString("mkv") : ext;
+}
+
+namespace {
+// What each container takes as it is. MKV takes anything; the source's own
+// container ("source") takes what it already holds.
+const QHash<QString, QStringList> kCopyVideo{
+    {"mp4", {"h264", "hevc", "av1", "vp9", "mpeg4", "mpeg2video", "mpeg1video"}},
+    {"mov", {"h264", "hevc", "prores", "dnxhd", "mjpeg", "mpeg2video", "mpeg4", "png", "qtrle"}},
+    {"webm", {"vp8", "vp9", "av1"}},
+};
+const QHash<QString, QStringList> kCopyAudio{
+    {"mp4", {"aac", "mp3", "ac3", "eac3", "opus", "flac", "alac"}},
+    {"mov", {"aac", "mp3", "ac3", "eac3", "alac"}},
+    {"m4a", {"aac", "alac"}},
+    {"webm", {"opus", "vorbis"}},
+    {"flac", {"flac"}},
+    {"wav", {}},
+};
+
+QString codecName(const QString &codec) {
+    static const QHash<QString, QString> names{
+        {"h264", "H.264"}, {"hevc", "HEVC"}, {"prores", "ProRes"}, {"dnxhd", "DNxHD/DNxHR"}, {"vp9", "VP9"},
+        {"vp8", "VP8"}, {"av1", "AV1"}, {"mpeg2video", "MPEG-2"}, {"mjpeg", "Motion JPEG"}, {"aac", "AAC"},
+        {"ac3", "AC-3"}, {"eac3", "E-AC-3"}, {"truehd", "Dolby TrueHD"}, {"dts", "DTS"}, {"opus", "Opus"},
+        {"vorbis", "Vorbis"}, {"flac", "FLAC"}, {"alac", "ALAC"}, {"mp3", "MP3"}};
+    if (codec.startsWith("pcm_"))
+        return "uncompressed (PCM)";
+    return names.value(codec, codec);
+}
+}
+
+QString sourceProblem(const Preset &p, const MediaInfo &info) {
+    if (!info.valid || p.container == "source" || p.container == "mkv")
+        return {};
+    const QString container = p.container.toUpper();
+    if (p.copiesVideo() && info.hasVideo && kCopyVideo.contains(p.container)
+        && !kCopyVideo.value(p.container).contains(info.videoCodec))
+        return QString("This file's %1 video can't go into %2 without converting it. Copy it into MKV or "
+                       "the same file type instead, or convert the video.")
+            .arg(codecName(info.videoCodec), container);
+    if (p.copiesAudio()) {
+        for (const AudioTrack &t : info.audio) {
+            if (p.audioOnly() && t.index > 0)
+                break;    // audio files take track 1 only
+            const bool fits = p.container == "wav" ? t.codec.startsWith("pcm_")
+                              : p.container == "mov" ? (t.codec.startsWith("pcm_") || kCopyAudio.value("mov").contains(t.codec))
+                                                     : kCopyAudio.value(p.container).contains(t.codec);
+            if (kCopyAudio.contains(p.container) && !fits)
+                return QString("Audio track %1 is %2, which %3 can't hold without converting it. Copy it into MKV "
+                               "or the same file type instead, or convert the audio.")
+                    .arg(t.index + 1).arg(codecName(t.codec), container);
+        }
+    }
     return {};
 }
 
@@ -259,7 +343,11 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
     const bool withVideo = info.hasVideo && !p.audioOnly();
     const bool hd = info.height >= 720;
     const QString defPrim = hd ? "bt709" : "smpte170m";
-    const bool previews = withVideo && !previewOut.isEmpty() && !previewSource.isEmpty();
+    // Copied streams pass through untouched: no filters, so no preview frames.
+    const bool copyVideo = withVideo && p.copiesVideo();
+    const bool copyAudio = p.copiesAudio();
+    const QString container = containerFor(p, info);
+    const bool previews = withVideo && !copyVideo && !previewOut.isEmpty() && !previewSource.isEmpty();
 
     const QStringList fix = withVideo ? colourFixArguments(info) : QStringList();
     if (!fix.isEmpty()) {
@@ -278,7 +366,7 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
         a << "-t" << QString::number(length, 'f', 3);
 
     QStringList graph;
-    if (withVideo) {
+    if (withVideo && !copyVideo) {
         QStringList chain;
         if (info.interlaced() && p.deinterlace) {
             chain << "bwdif=mode=send_frame";
@@ -328,7 +416,7 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
     const bool withAudio = !info.audio.isEmpty() && p.audio != "none";
     QStringList audioMaps;
     if (withAudio) {
-        if (info.splitMono()) {
+        if (info.splitMono() && !copyAudio) {
             graph << "[0:a:0][0:a:1]join=inputs=2:channel_layout=stereo[a]";
             audioMaps << "[a]";
             cmd.notes << "Mono tracks 1 and 2 joined into stereo (left, right)";
@@ -343,7 +431,7 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             audioMaps << "0:a:0";
             if (info.audio.size() > 1)
                 cmd.notes << QString("Only audio track 1 of %1 converted: a %2 file holds one track")
-                                 .arg(info.audio.size()).arg(p.container.toUpper());
+                                 .arg(info.audio.size()).arg(container.toUpper());
         }
     }
 
@@ -353,10 +441,10 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
     QString subtitleCodec;
     if (withVideo && !info.subtitles.isEmpty()) {
         int pictures = 0;
-        if (p.container == "mkv") {
+        if (p.container == "mkv" || p.container == "source") {
             subtitleCodec = "copy";
-        } else if (p.container == "mp4" || p.container == "mov" || p.container == "webm") {
-            subtitleCodec = p.container == "webm" ? "webvtt" : "mov_text";
+        } else if (container == "mp4" || container == "mov" || container == "webm") {
+            subtitleCodec = container == "webm" ? "webvtt" : "mov_text";
         }
         for (const SubtitleTrack &t : info.subtitles) {
             if (subtitleCodec.isEmpty())
@@ -370,16 +458,19 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             cmd.notes << QString("%1 subtitle track%2 kept").arg(subtitleMaps.size()).arg(subtitleMaps.size() == 1 ? "" : "s");
         if (pictures > 0)
             cmd.notes << QString("%1 picture subtitle track%2 left out: %3 can't hold %4; MKV can")
-                             .arg(pictures).arg(pictures == 1 ? "" : "s").arg(p.container.toUpper())
+                             .arg(pictures).arg(pictures == 1 ? "" : "s").arg(container.toUpper())
                              .arg(pictures == 1 ? "it" : "them");
         else if (subtitleCodec.isEmpty())
-            cmd.notes << QString("Subtitles left out: a %1 file has no place for them").arg(p.container.toUpper());
+            cmd.notes << QString("Subtitles left out: a %1 file has no place for them").arg(container.toUpper());
     }
 
     if (!graph.isEmpty())
         a << "-filter_complex" << graph.join(';');
 
-    if (withVideo) {
+    if (copyVideo) {
+        a << "-map" << "0:V:0" << "-c:v" << "copy";
+        cmd.notes << "Video copied as it is, not re-encoded";
+    } else if (withVideo) {
         a << "-map" << "[v]";
         const QString prim = knownTag(info.colorPrimaries) ? info.colorPrimaries : defPrim;
         const QString trc = knownTag(info.colorTransfer) ? info.colorTransfer : defPrim;
@@ -433,7 +524,9 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             a << "-map" << map;
         const int rate = info.audio.first().sampleRate;
         const bool lossy = p.audio == "aac" || p.audio == "opus" || p.audio == "mp3";
-        if (p.audio == "aac")
+        if (copyAudio)
+            a << "-c:a" << "copy";
+        else if (p.audio == "aac")
             a << "-c:a" << "aac" << "-b:a" << QString("%1k").arg(p.audioKbps);
         else if (p.audio == "opus")
             a << "-c:a" << "libopus" << "-b:a" << QString("%1k").arg(p.audioKbps);
@@ -447,7 +540,7 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             a << "-c:a" << "flac";
         else if (p.audio == "alac")
             a << "-c:a" << "alac";
-        if (p.audio == "opus" || (lossy && rate > 48000))
+        if (!copyAudio && (p.audio == "opus" || (lossy && rate > 48000)))
             a << "-ar" << "48000";
     } else {
         a << "-an";
@@ -461,9 +554,21 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
         a << "-sn";
     // Data tracks (timecode) are rebuilt rather than copied.
     a << "-dn";
-    const bool quicktime = p.container == "mp4" || p.container == "mov" || p.container == "m4a";
-    if (quicktime && withVideo && !info.timecode.isEmpty() && start < 0)
-        a << "-timecode" << info.timecode;
+    // A copy cut starts on the keyframe at or before the in point; times are
+    // shifted to start at zero so players don't show a gap.
+    if ((copyVideo || copyAudio) && start > 0) {
+        a << "-avoid_negative_ts" << "make_zero";
+        if (copyVideo)
+            cmd.notes << "Cut without re-encoding: it starts on the keyframe at or before the in point";
+    }
+    const bool quicktime = container == "mp4" || container == "mov" || container == "m4a";
+    if (quicktime && withVideo && !info.timecode.isEmpty()) {
+        // A trimmed copy starts that much later on the source's clock.
+        const QString tc = start > 0 ? offsetTimecode(info.timecode, qint64(std::llround(start * info.fps)),
+                                                      int(std::lround(info.fps)))
+                                     : info.timecode;
+        a << "-timecode" << tc;
+    }
     if (quicktime)
         a << "-movflags" << "+faststart";
     a << output;

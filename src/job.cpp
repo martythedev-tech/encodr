@@ -1,5 +1,7 @@
 #include "job.h"
 
+#include <algorithm>
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -16,8 +18,8 @@ constexpr double kHistoryInterval = 2.0;   // seconds of work between graph poin
 constexpr double kWindow = 20.0;           // seconds behind the "current" speed, fps and bitrate
 constexpr qsizetype kErrorTail = 16 * 1024;
 
-QString extensionFor(const Preset &p) {
-    return p.container;
+QString extensionFor(const Preset &p, const MediaInfo &info) {
+    return containerFor(p, info);
 }
 }
 
@@ -75,7 +77,7 @@ QString Job::outputPath() const {
     if (!m_finalPath.isEmpty())
         return m_finalPath;
     const QString base = QFileInfo(m_input).completeBaseName() + m_preset.suffix;
-    return uniquePath(QDir(m_outputFolder).filePath(base + "." + extensionFor(m_preset)));
+    return uniquePath(QDir(m_outputFolder).filePath(base + "." + extensionFor(m_preset, m_info)));
 }
 
 Preset Job::runPreset() const {
@@ -95,16 +97,53 @@ void Job::setEngine(const QString &engine, const QString &device) {
     emit presetChanged();
 }
 
+Command Job::command(const QString &output, bool previews) const {
+    const bool cut = trimmed();
+    return buildCommand(runPreset(), m_info, m_input, output, cut ? m_trimIn : -1, cut ? length() : -1,
+                        previews ? m_previewOut : QString(), previews ? m_previewSource : QString());
+}
+
 QString Job::commandLine() const {
     if (!m_info.valid)
         return {};
-    return "ffmpeg " + shellQuote(buildCommand(runPreset(), m_info, m_input, outputPath()).arguments);
+    return "ffmpeg " + shellQuote(command(outputPath(), false).arguments);
 }
 
 QStringList Job::notes() const {
     if (isActive() || isFinished())
         return m_runNotes;
-    return m_info.valid ? buildCommand(runPreset(), m_info, m_input, outputPath()).notes : QStringList();
+    return m_info.valid ? command(outputPath(), false).notes : QStringList();
+}
+
+QString Job::presetProblemText() const {
+    const QString problem = presetProblem(m_preset);
+    return problem.isEmpty() ? sourceProblem(m_preset, m_info) : problem;
+}
+
+void Job::setTrim(double in, double out) {
+    if (isActive())
+        return;
+    const double end = m_info.duration;
+    in = std::clamp(in, 0.0, std::max(0.0, end));
+    out = out <= 0 || out >= end ? 0 : std::max(out, in + 0.1);
+    if (qFuzzyCompare(in + 1, m_trimIn + 1) && qFuzzyCompare(out + 1, m_trimOut + 1))
+        return;
+    m_trimIn = in;
+    m_trimOut = out;
+    emit trimChanged();
+    emit presetChanged();    // the command and its notes
+    emit infoChanged();      // the frame count
+}
+
+void Job::showFrameAt(double seconds) {
+    if (!m_info.hasVideo)
+        return;
+    seconds = std::clamp(seconds, 0.0, std::max(0.0, m_info.duration - 0.05));
+    if (m_posterBusy) {
+        m_posterWanted = seconds;
+        return;
+    }
+    makePoster(seconds);
 }
 
 QString Job::partialPathFor(const QString &output) {
@@ -146,7 +185,8 @@ void Job::probe() {
         setState("ready");
         emit infoChanged();
         emit presetChanged();
-        makePoster();
+        emit trimChanged();    // the out point defaults to the end, now known
+        makePoster(m_info.duration * 0.1);
         scanLevels(0);
     });
     process->start("ffprobe", {"-v", "error", "-print_format", "json", "-show_format", "-show_streams", m_input});
@@ -169,18 +209,27 @@ void Job::probe() {
 
 // A frame a tenth of the way in stands for the file until conversion starts
 // (the very first frames are often black or a slate).
-void Job::makePoster() {
+void Job::makePoster(double at) {
     if (!m_info.hasVideo)
         return;
+    m_posterBusy = true;
     auto *process = new QProcess(this);
-    connect(process, &QProcess::finished, this, [this, process](int code, QProcess::ExitStatus) {
+    connect(process, &QProcess::finished, this, [this, process, at](int code, QProcess::ExitStatus) {
         process->deleteLater();
+        m_posterBusy = false;
         if (code == 0 && QFileInfo::exists(m_previewSource)) {
+            m_posterTime = at;
             ++m_previewStamp;
             emit previewChanged();
         }
+        if (m_posterWanted >= 0) {
+            const double next = m_posterWanted;
+            m_posterWanted = -1;
+            if (!isActive())
+                makePoster(next);
+        }
     });
-    process->start("ffmpeg", posterArguments(m_info, m_input, m_info.duration * 0.1, m_previewSource));
+    process->start("ffmpeg", posterArguments(m_info, m_input, at, m_previewSource));
 }
 
 void Job::checkPreview() {
@@ -225,7 +274,7 @@ void Job::scanLevels(int track) {
 }
 
 bool Job::start() {
-    if (!m_info.valid || !presetProblem(m_preset).isEmpty() || isActive())
+    if (!m_info.valid || !presetProblemText().isEmpty() || isActive())
         return false;
     if (!QDir().mkpath(m_outputFolder) || !QFileInfo(m_outputFolder).isWritable()) {
         setState("failed", QString("Can't write to %1. Choose another output folder.").arg(m_outputFolder));
@@ -248,7 +297,7 @@ bool Job::launch() {
     m_previewTime = QDateTime();
     m_hasLivePreview = false;
     emit previewChanged();
-    const Command command = buildCommand(runPreset(), m_info, m_input, partial, -1, -1, m_previewOut, m_previewSource);
+    const Command command = this->command(partial, true);
     m_runNotes = command.notes;
     if (!m_fallbackNote.isEmpty())
         m_runNotes.prepend(m_fallbackNote);
@@ -432,7 +481,7 @@ void Job::readProgress() {
         m_recentBitrate = m_last.bitrateKbps;
     }
 
-    m_estimate = estimate(m_info.duration, m_last.outTime, t, m_last.totalSize, m_recentSpeed);
+    m_estimate = estimate(length(), m_last.outTime, t, m_last.totalSize, m_recentSpeed);
     if (m_last.end) {
         m_estimate.fraction = 1;
         m_estimate.remaining = 0;

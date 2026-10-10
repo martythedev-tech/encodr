@@ -163,6 +163,54 @@ private slots:
         QVERIFY(cmd.notes.contains("Only audio track 1 of 3 converted: a WAV file holds one track"));
     }
 
+    void copyCutsAndRewraps() {
+        Preset copy, rewrap;
+        for (const Preset &p : builtinPresets()) {
+            if (p.id == "copy")
+                copy = p;
+            if (p.id == "rewrap-mp4")
+                rewrap = p;
+        }
+        QVERIFY(presetProblem(copy).isEmpty());
+        QVERIFY(presetProblem(rewrap).isEmpty());
+
+        // A ProRes recording: copying keeps its own MOV; MP4 can't hold ProRes.
+        const MediaInfo prores = parseProbe(kKiPro, "/x/CLIP0001.MOV");
+        QCOMPARE(containerFor(copy, prores), QString("mov"));
+        QVERIFY(sourceProblem(copy, prores).isEmpty());
+        QVERIFY(sourceProblem(rewrap, prores).contains("ProRes video can't go into MP4"));
+
+        // A lossless cut from 10 s to 25 s.
+        const Command cmd = buildCommand(copy, prores, "/x/CLIP0001.MOV", "/y/out.mov", 10.0, 15.0,
+                                         "/tmp/pv.jpg", "/tmp/sv.jpg");
+        const QString joined = cmd.arguments.join(' ');
+        QVERIFY(joined.contains("-ss 10.000 -i /x/CLIP0001.MOV -t 15.000"));
+        QVERIFY(joined.contains("-map 0:V:0 -c:v copy"));
+        QVERIFY(joined.contains("-map 0:a:0 -map 0:a:1 -c:a copy"));    // mono tracks stay as they are
+        QVERIFY(!joined.contains("-filter_complex"));                    // nothing decoded, no previews
+        QVERIFY(!joined.contains("join="));
+        QVERIFY(!joined.contains("pv.jpg"));
+        QVERIFY(joined.contains("-avoid_negative_ts make_zero"));
+        QVERIFY(cmd.notes.contains("Cut without re-encoding: it starts on the keyframe at or before the in point"));
+
+        // PCM audio can't be copied into MP4 either.
+        const QByteArray probe = R"({"format": {"duration": "10"}, "streams": [
+            {"codec_type": "video", "codec_name": "h264", "width": 1920, "height": 1080, "avg_frame_rate": "25/1"},
+            {"codec_type": "audio", "codec_name": "pcm_s24le", "channels": 2, "sample_rate": "48000"}]})";
+        const MediaInfo h264pcm = parseProbe(probe, "/x/a.mov");
+        QVERIFY(sourceProblem(rewrap, h264pcm).contains("Audio track 1 is uncompressed (PCM), which MP4 can't hold"));
+        Preset mkv = rewrap;
+        mkv.container = "mkv";
+        QVERIFY(sourceProblem(mkv, h264pcm).isEmpty());
+    }
+
+    void trimSetsTheRange() {
+        Job job(1, "/x/in.mov");
+        QCOMPARE(job.trimmed(), false);
+        job.setTrim(5, 0);
+        QCOMPARE(job.trimIn(), 0.0);    // nothing probed yet: no duration to trim within
+    }
+
     void timecodeBurnFollowsPreviewStart() {
         const MediaInfo info = parseProbe(kKiPro, "/x/in.mov");
         Preset p = builtinPresets()[1];
@@ -172,7 +220,7 @@ private slots:
         // 10 s at 59.94 fps is 599 frames after 01:02:15:13 (base 60) → 01:02:25:12.
         QVERIFY2(joined.contains("timecode='01\\:02\\:25\\:12'"), qPrintable(joined));
         QVERIFY(joined.contains("rate=2997/50"));
-        QVERIFY(!joined.contains("-timecode "));
+        QVERIFY(joined.contains("-timecode 01:02:25:12"));    // the trimmed part keeps its place on the clock
     }
 
     void wavPresetIsAudioOnly() {
@@ -683,6 +731,44 @@ private slots:
 
     // The whole path: probe a real file, convert it, and land the result
     // atomically under its final name.
+    void cutsWithoutReencodingForReal() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        const QString source = dir.filePath("long.mp4");
+        QProcess make;    // 10 s, a keyframe every second
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=10",
+                              "-f", "lavfi", "-i", "sine=frequency=440:duration=10", "-ac", "2",
+                              "-c:v", "libx264", "-g", "25", "-c:a", "aac", source});
+        QVERIFY(make.waitForFinished(60000));
+        QCOMPARE(make.exitCode(), 0);
+
+        Job job(1, source);
+        for (const Preset &p : builtinPresets())
+            if (p.id == "copy")
+                job.setPreset(p);
+        job.setOutputFolder(dir.filePath("out"));
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        job.setTrim(3, 6);
+        QVERIFY(job.trimmed());
+        QCOMPARE(job.length(), 3.0);
+        QCOMPARE(job.totalFrames(), qint64(75));
+
+        QSignalSpy finished(&job, &Job::finished);
+        QVERIFY(job.start());
+        QVERIFY(finished.wait(60000));
+        QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+        const QString out = dir.filePath("out/long_copy.mp4");
+        QProcess check;
+        check.start("ffprobe", {"-v", "error", "-show_entries", "format=duration:stream=codec_name", "-of", "csv=p=0", out});
+        QVERIFY(check.waitForFinished(10000));
+        const QString result = QString::fromUtf8(check.readAllStandardOutput());
+        QVERIFY2(result.contains("h264") && result.contains("aac"), qPrintable(result));
+        const double seconds = result.split('\n', Qt::SkipEmptyParts).last().toDouble();
+        QVERIFY2(seconds > 2.9 && seconds < 3.2, qPrintable(result));
+    }
+
     void convertsARealClip() {
         if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
             QSKIP("ffmpeg is not installed");

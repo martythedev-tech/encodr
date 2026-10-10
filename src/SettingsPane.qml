@@ -127,6 +127,7 @@ ScrollView {
                 Field {
                     label: "File type"
                     Choice { key: "container"; options: [
+                        { value: "source", text: "Same as the source" + (job ? " (." + job.inputPath.split(".").pop().toLowerCase() + ")" : "") },
                         { value: "mp4", text: "MP4 (.mp4)" }, { value: "mov", text: "QuickTime (.mov)" },
                         { value: "mkv", text: "Matroska (.mkv)" }, { value: "webm", text: "WebM (.webm)" },
                         { value: "wav", text: "WAV audio (.wav)" }, { value: "flac", text: "FLAC audio (.flac)" },
@@ -135,6 +136,7 @@ ScrollView {
                 Field {
                     label: "Video codec"
                     Choice { key: "video"; options: [
+                        { value: "copy", text: "Copy — no re-encoding" },
                         { value: "h264", text: "H.264 — plays everywhere" }, { value: "hevc", text: "HEVC (H.265) — half the size" },
                         { value: "vp9", text: "VP9 — for the web" }, { value: "prores_proxy", text: "ProRes Proxy" },
                         { value: "prores_lt", text: "ProRes LT" }, { value: "prores_422", text: "ProRes 422" },
@@ -217,7 +219,7 @@ ScrollView {
                 }
                 Field {
                     label: "Picture size"
-                    visible: p.video !== "none"
+                    visible: p.video !== "none" && p.video !== "copy"
                     Choice { key: "maxHeight"; options: [
                         { value: 0, text: "Same as the source" + (job && job.info.height ? " (" + job.info.height + "p)" : "") },
                         { value: 2160, text: "Up to 2160p (4K)" }, { value: 1440, text: "Up to 1440p" },
@@ -226,7 +228,7 @@ ScrollView {
                 }
                 Field {
                     label: "Deinterlace"
-                    visible: p.video !== "none"
+                    visible: p.video !== "none" && p.video !== "copy"
                     RowLayout {
                         width: parent.width
                         Switch {
@@ -248,7 +250,7 @@ ScrollView {
                 spacing: 16
                 Section {
                     title: "Review extras"
-                    visible: p.video !== "none"
+                    visible: p.video !== "none" && p.video !== "copy"
                     Field {
                         label: "Burn in timecode"
                         RowLayout {
@@ -287,6 +289,7 @@ ScrollView {
                     Field {
                         label: "Audio codec"
                         Choice { key: "audio"; options: [
+                            { value: "copy", text: "Copy — no re-encoding" },
                             { value: "aac", text: "AAC — plays everywhere" }, { value: "opus", text: "Opus — best at low bitrates" },
                             { value: "mp3", text: "MP3" }, { value: "alac", text: "ALAC — lossless (Apple)" },
                             { value: "flac", text: "FLAC — lossless" }, { value: "pcm24", text: "Uncompressed 24-bit" },

@@ -67,6 +67,11 @@ class Job : public QObject {
     Q_PROPERTY(QString previewSource READ previewSource CONSTANT)
     Q_PROPERTY(int previewStamp READ previewStamp NOTIFY previewChanged)
     Q_PROPERTY(bool hasLivePreview READ hasLivePreview NOTIFY previewChanged)
+    Q_PROPERTY(double posterTime READ posterTime NOTIFY previewChanged)
+    // The part of the source to convert: in and out points in seconds.
+    Q_PROPERTY(double trimIn READ trimIn NOTIFY trimChanged)
+    Q_PROPERTY(double trimOut READ trimOut NOTIFY trimChanged)
+    Q_PROPERTY(bool trimmed READ trimmed NOTIFY trimChanged)
 
 public:
     Job(int id, const QString &inputPath, QObject *parent = nullptr);
@@ -84,7 +89,7 @@ public:
     QString mediainfoReport() const { return m_mediainfo; }
     const Preset &presetValue() const { return m_preset; }
     QVariantMap presetVariant() const { return m_preset.toVariant(); }
-    QString presetProblemText() const { return presetProblem(m_preset); }
+    QString presetProblemText() const;
     QString outputFolder() const { return m_outputFolder; }
     void setOutputFolder(const QString &folder);
     QString outputPath() const;
@@ -102,7 +107,7 @@ public:
     double fps() const { return m_recentFps; }
     double averageFps() const;
     qint64 frame() const { return m_last.frame; }
-    qint64 totalFrames() const { return m_info.estimatedFrames(); }
+    qint64 totalFrames() const { return m_info.hasVideo && m_info.fps > 0 ? qint64(std::llround(length() * m_info.fps)) : 0; }
     double bitrateKbps() const { return m_recentBitrate; }
     double averageBitrateKbps() const { return m_last.bitrateKbps; }
     qint64 size() const { return m_last.totalSize; }
@@ -123,6 +128,18 @@ public:
     QString previewSource() const { return m_previewSource; }
     int previewStamp() const { return m_previewStamp; }
     bool hasLivePreview() const { return m_hasLivePreview; }
+    double posterTime() const { return m_posterTime; }
+
+    double trimIn() const { return m_trimIn; }
+    double trimOut() const { return m_trimOut > 0 ? m_trimOut : m_info.duration; }
+    bool trimmed() const { return m_trimIn > 0 || (m_trimOut > 0 && m_trimOut < m_info.duration); }
+    // How much of the source gets converted.
+    double length() const { return trimOut() - m_trimIn; }
+    Q_INVOKABLE void setTrim(double in, double out);
+    Q_INVOKABLE void clearTrim() { setTrim(0, 0); }
+    // Shows the source frame at this time in the preview (for setting the
+    // in and out points); the latest request wins.
+    Q_INVOKABLE void showFrameAt(double seconds);
 
     qint64 processId() const { return m_process ? m_process->processId() : 0; }
     bool isActive() const { return m_state == "running" || m_state == "paused"; }
@@ -160,12 +177,14 @@ signals:
     void statsChanged();
     void finished(bool ok);
     void previewChanged();
+    void trimChanged();
 
 private:
     bool launch();    // starts ffmpeg; start() checks first
     void setState(const QString &state, const QString &message = {});
     void scanLevels(int track);
-    void makePoster();
+    void makePoster(double at);
+    Command command(const QString &output, bool previews) const;
     void checkPreview();
     void readProgress();
     void onFinished(int code, QProcess::ExitStatus status);
@@ -186,6 +205,11 @@ private:
     QString m_engine = "cpu";
     QString m_engineDevice;
     QString m_fallbackNote;     // why a GPU run was redone on the CPU
+    double m_trimIn = 0;
+    double m_trimOut = 0;       // 0 = the end
+    double m_posterTime = 0;
+    double m_posterWanted = -1; // a frame asked for while another was being made
+    bool m_posterBusy = false;
 
     QPointer<QProcess> m_process;
     QPointer<QProcess> m_helper;

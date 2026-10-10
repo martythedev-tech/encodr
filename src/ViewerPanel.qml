@@ -106,7 +106,7 @@ Dock {
                                 font.features: { "tnum": 1 }
                                 text: (root.mode === "both" ? (modelData === "source" ? "Source · " : "Output · ") : "")
                                       + (!job ? "" : root.live ? Format.duration(job.outTime) + " / " + Format.duration(job.info.duration)
-                                                              : "Poster · " + Format.duration(job.info.duration * 0.1) + " in")
+                                                              : "Frame at " + Format.precise(job.posterTime))
                             }
                         }
                         Text {
@@ -139,6 +139,12 @@ Dock {
                     font.pixelSize: 12
                 }
             }
+        }
+
+        TrimBar {
+            Layout.fillWidth: true
+            job: root.job
+            visible: job !== null && duration > 0 && !root.active && job.state !== "probing"
         }
 
         // Where the job stands.

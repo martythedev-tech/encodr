@@ -17,8 +17,12 @@ struct Preset {
     QString suffix;              // added to the output file name, e.g. "_review"
     bool builtin = true;
 
-    QString container = "mp4";     // mp4, mov, mkv, webm, wav, flac, m4a
-    QString video = "h264";        // h264, hevc, prores_proxy, prores_lt, prores_422, prores_hq, vp9, none
+    // mp4, mov, mkv, webm, wav, flac, m4a, or "source": the source's own
+    // container (for cutting or copying without re-encoding).
+    QString container = "mp4";
+    // h264, hevc, prores_proxy, prores_lt, prores_422, prores_hq, vp9, none,
+    // or "copy": the source's video as it is, not re-encoded.
+    QString video = "h264";
     int crf = 18;
     int maxrateKbps = 16000;       // 0 = no cap
     // x264/x265 preset. "fast" measured 2.4x quicker than "slow" on a Ki Pro
@@ -26,7 +30,7 @@ struct Preset {
     // for no visible gain.
     QString speed = "fast";
     int maxHeight = 0;             // 0 = keep the source size
-    QString audio = "aac";         // aac, pcm24, pcm16, flac, alac, opus, mp3, none
+    QString audio = "aac";         // aac, pcm24, pcm16, flac, alac, opus, mp3, none, copy
     int audioKbps = 320;
     bool deinterlace = true;       // only applied when the source is interlaced
     bool burnTimecode = false;
@@ -39,6 +43,8 @@ struct Preset {
 
     bool usesVideoEncoder() const { return video == "h264" || video == "hevc"; }
     bool audioOnly() const { return video == "none"; }
+    bool copiesVideo() const { return video == "copy"; }
+    bool copiesAudio() const { return audio == "copy"; }
     QVariantMap toVariant() const;
     static Preset fromVariant(const QVariantMap &map);
 };
@@ -47,6 +53,11 @@ QList<Preset> builtinPresets();
 
 // Container/codec pairs that can't work, in plain words; empty when fine.
 QString presetProblem(const Preset &preset);
+// The same for one source: streams copied as they are must fit the target
+// container (ProRes can't go into MP4, say).
+QString sourceProblem(const Preset &preset, const MediaInfo &info);
+// The container written: the preset's, or the source's own for "source".
+QString containerFor(const Preset &preset, const MediaInfo &info);
 
 struct Command {
     QStringList arguments;      // for ffmpeg, without the program name

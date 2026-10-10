@@ -409,7 +409,7 @@ void Backend::startNext() {
         Job *job = m_jobs[i];
         if (!job->isWaiting())
             continue;
-        if (!presetProblem(job->presetValue()).isEmpty())
+        if (!job->presetProblemText().isEmpty())
             continue;
         const auto [engine, device] = engineFor(job->presetValue());
         job->setEngine(engine, device);
