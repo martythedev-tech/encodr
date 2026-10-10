@@ -20,8 +20,10 @@ below; and the source details beside live stats. The layout is remembered.
   per eight cores, up to four, or choose). Reorder, remove, undo, retry.
 - **GPU encoding (experimental, off by default).** Encodr finds the hardware
   encoders that really work on this machine (NVIDIA NVENC, Intel Quick Sync,
-  VA-API for Intel and AMD) and can use them for H.264 and HEVC: much faster,
-  slightly larger files. If the GPU refuses a file, it's redone on the CPU.
+  VA-API for Intel and AMD) and can use them for H.264 and HEVC: much faster
+  at the same quality, but files come out larger (often about twice the
+  size). If the GPU refuses a file, it's redone on the CPU. Stats show which
+  GPU is doing the work.
 - **Presets that adapt to the source.** Review copy (H.264), review copy with
   burned-in timecode, small share copy, HEVC, ProRes Proxy and 422, lossless
   WAV and FLAC, AAC audio. Tune any setting and save your own.
@@ -99,9 +101,9 @@ It carries everything it needs, ffmpeg included, so nothing else has to be
 installed. Every release is started on stock Ubuntu, Debian and Fedora and
 converts a clip before it's published. The x86_64 AppImage runs on Ubuntu
 22.04, Debian 12, Fedora 36 or newer; the aarch64 one on Ubuntu 24.04,
-Debian 13, Fedora 39 or newer. To have it in your app menu, use
-[Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) or
-[AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher).
+Debian 13, Fedora 39 or newer. The first time it runs, Encodr offers to add
+itself to your app menu (with its icon); if you move the AppImage or switch
+to a newer one, the menu entry follows it.
 
 Outside Omarchy, Encodr uses its own dark theme.
 

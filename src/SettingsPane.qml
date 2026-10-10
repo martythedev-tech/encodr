@@ -377,7 +377,7 @@ ScrollView {
                                     var names = [];
                                     for (var i = 0; i < hw.encoders.length; i++)
                                         names.push(hw.encoders[i].name + " (" + hw.encoders[i].codecs.join(", ").toUpperCase() + ")");
-                                    return "Found " + names.join(", ") + ". Much faster, slightly larger files; "
+                                    return "Found " + names.join(", ") + ". Much faster, at the same quality as the CPU, but files come out larger (often about twice the size); "
                                            + "if the GPU refuses a file, Encodr redoes it on the CPU.";
                                 }
                             }
