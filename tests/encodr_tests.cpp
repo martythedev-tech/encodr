@@ -101,7 +101,7 @@ private slots:
         const QString joined = cmd.arguments.join(' ');
         QVERIFY(joined.contains("-bsf:v prores_metadata=color_primaries=bt709:color_trc=bt709:colorspace=bt709"));
         QVERIFY(joined.indexOf("-bsf:v") < joined.indexOf("-i /x/in.mov"));
-        QVERIFY(joined.contains("[0:a:0][0:a:1]join=inputs=2:channel_layout=stereo[a]"));
+        QVERIFY(joined.contains("[0:a:0][0:a:1]join=inputs=2:channel_layout=stereo[a0]"));
         QVERIFY(joined.contains("-c:v libx264 -preset fast -crf 18"));
         QVERIFY(joined.contains("-maxrate 16000k -bufsize 32000k"));
         QVERIFY(joined.contains("-c:a aac -b:a 320k"));
@@ -789,6 +789,71 @@ private slots:
         QVERIFY2(result.contains("h264") && result.contains("aac"), qPrintable(result));
         const double seconds = result.split('\n', Qt::SkipEmptyParts).last().toDouble();
         QVERIFY2(seconds > 2.9 && seconds < 3.2, qPrintable(result));
+    }
+
+    void loudnessCommands() {
+        const QByteArray out = "[Parsed_loudnorm_0 @ 0x1] \n{\n\t\"input_i\" : \"-31.20\",\n\t\"input_tp\" : \"-9.80\",\n"
+                               "\t\"input_lra\" : \"4.30\",\n\t\"input_thresh\" : \"-41.50\",\n\t\"target_offset\" : \"0.10\"\n}\n";
+        const Loudness m = parseLoudnorm(out);
+        QVERIFY(m.valid());
+        QCOMPARE(m.input, -31.2);
+        QCOMPARE(m.range, 4.3);
+        QVERIFY(!parseLoudnorm("{\"input_i\" : \"-inf\", \"input_tp\" : \"-inf\"}").valid());   // a silent track
+
+        const MediaInfo info = parseProbe(kKiPro, "/x/in.mov");    // two mono tracks, joined
+        Preset p = builtinPresets().first();
+        p.loudness = "ebu";
+        QCOMPARE(audioStreamCount(p, info), 1);
+        const QString measure = loudnessArguments(p, info, "/x/in.mov", 0, 5, 10).join(' ');
+        QVERIFY2(measure.contains("-ss 5.000 -i /x/in.mov -t 10.000"), qPrintable(measure));
+        QVERIFY(measure.contains("[0:a:0][0:a:1]join=inputs=2:channel_layout=stereo,loudnorm=I=-23:TP=-1:LRA=11:print_format=json[m]"));
+
+        const Command cmd = buildCommand(p, info, "/x/in.mov", "/y/out.mp4", -1, -1, {}, {}, {m});
+        const QString joined = cmd.arguments.join(' ');
+        QVERIFY2(joined.contains("join=inputs=2:channel_layout=stereo,loudnorm=I=-23:TP=-1:LRA=7:measured_I=-31.20"
+                                 ":measured_TP=-9.80:measured_LRA=4.30:measured_thresh=-41.50:offset=0.10:linear=true,"
+                                 "aresample=48000[a0]"), qPrintable(joined));
+        QVERIFY(cmd.notes.contains("Loudness set to -23 LUFS (EBU R128), true peak -1 dBTP or lower"));
+
+        Preset copied = p;
+        copied.audio = "copy";
+        QVERIFY(!presetProblem(copied).isEmpty());
+    }
+
+    void loudnessIsMeasuredThenSet() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        const QString source = dir.filePath("quiet.wav");
+        QProcess make;    // a quiet tone, well under -23 LUFS
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=1000:duration=8",
+                              "-af", "volume=-30dB", "-ac", "2", "-c:a", "pcm_s24le", source});
+        QVERIFY(make.waitForFinished(60000));
+        QCOMPARE(make.exitCode(), 0);
+
+        Job job(1, source);
+        Preset p;
+        for (const Preset &b : builtinPresets())
+            if (b.container == "wav")
+                p = b;
+        p.loudness = "ebu";
+        job.setPreset(p);
+        job.setOutputFolder(dir.filePath("out"));
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        QSignalSpy finished(&job, &Job::finished);
+        QVERIFY(job.start());
+        QVERIFY(finished.wait(60000));
+        QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+
+        QProcess check;    // measure the result independently
+        check.setProcessChannelMode(QProcess::MergedChannels);
+        check.start("ffmpeg", {"-nostdin", "-hide_banner", "-nostats", "-i", dir.filePath("out/quiet.wav"),
+                               "-af", "loudnorm=print_format=json", "-f", "null", "-"});
+        QVERIFY(check.waitForFinished(30000));
+        const Loudness result = parseLoudnorm(check.readAll());
+        QVERIFY2(qAbs(result.input + 23) < 0.6, qPrintable(QString::number(result.input)));
+        QVERIFY(result.truePeak <= -0.9);
     }
 
     void convertsARealClip() {

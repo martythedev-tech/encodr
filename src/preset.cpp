@@ -2,14 +2,17 @@
 
 #include <QFileInfo>
 #include <QHash>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
+#include <algorithm>
 #include <cmath>
 
 QVariantMap Preset::toVariant() const {
     return {
         {"id", id}, {"name", name}, {"description", description}, {"suffix", suffix}, {"builtin", builtin},
         {"container", container}, {"video", video}, {"crf", crf}, {"maxrateKbps", maxrateKbps},
-        {"speed", speed}, {"maxHeight", maxHeight}, {"audio", audio}, {"audioKbps", audioKbps},
+        {"speed", speed}, {"maxHeight", maxHeight}, {"audio", audio}, {"audioKbps", audioKbps}, {"loudness", loudness},
         {"deinterlace", deinterlace}, {"burnTimecode", burnTimecode}, {"watermark", watermark},
         {"hardware", hardware},
         {"audioOnly", audioOnly()},
@@ -31,6 +34,7 @@ Preset Preset::fromVariant(const QVariantMap &m) {
     p.maxHeight = m.value("maxHeight", p.maxHeight).toInt();
     p.audio = m.value("audio", p.audio).toString();
     p.audioKbps = m.value("audioKbps", p.audioKbps).toInt();
+    p.loudness = m.value("loudness", p.loudness).toString();
     p.deinterlace = m.value("deinterlace", p.deinterlace).toBool();
     p.burnTimecode = m.value("burnTimecode", p.burnTimecode).toBool();
     p.watermark = m.value("watermark").toString();
@@ -204,6 +208,9 @@ QString presetProblem(const Preset &p) {
     }
     if (p.audioOnly() && p.audio == "none")
         return "This preset has neither video nor audio.";
+    if (p.copiesAudio() && loudnessTarget(p.loudness).lufs < 0)
+        return "Setting the loudness changes the audio, so it can't be copied as it is. Choose an audio codec, "
+               "or leave the loudness as recorded.";
     return {};
 }
 
@@ -353,9 +360,103 @@ QStringList posterArguments(const MediaInfo &info, const QString &input, double 
     return a;
 }
 
+LoudnessTarget loudnessTarget(const QString &id) {
+    if (id == "ebu")
+        return {-23, -1, "EBU R128"};
+    if (id == "atsc")
+        return {-24, -2, "ATSC A/85"};
+    if (id == "web")
+        return {-16, -1, "podcasts and web"};
+    if (id == "stream")
+        return {-14, -1, "streaming"};
+    return {};
+}
+
+Loudness parseLoudnorm(const QByteArray &output) {
+    Loudness l;
+    const qsizetype open = output.lastIndexOf('{'), close = output.lastIndexOf('}');
+    if (open < 0 || close < open)
+        return l;
+    const QJsonObject o = QJsonDocument::fromJson(output.mid(open, close - open + 1)).object();
+    auto number = [&o](const char *key) {
+        bool ok = false;
+        const double v = o.value(key).toString().toDouble(&ok);
+        return ok && std::isfinite(v) ? v : NAN;
+    };
+    l.input = number("input_i");
+    l.truePeak = number("input_tp");
+    l.range = number("input_lra");
+    l.threshold = number("input_thresh");
+    const double offset = number("target_offset");
+    l.offset = std::isfinite(offset) ? offset : 0;
+    return l;
+}
+
+namespace {
+// One output audio stream: its inputs ("[0:a:1]") and any filter that makes
+// it (joining split mono tracks).
+struct AudioStream {
+    QString inputs;
+    QString filter;
+    int sampleRate = 48000;
+};
+
+QList<AudioStream> audioStreams(const Preset &p, const MediaInfo &info) {
+    QList<AudioStream> list;
+    if (info.audio.isEmpty() || p.audio == "none")
+        return list;
+    const int rate = info.audio.first().sampleRate > 0 ? info.audio.first().sampleRate : 48000;
+    if (info.splitMono() && !p.copiesAudio()) {
+        list.append({"[0:a:0][0:a:1]", "join=inputs=2:channel_layout=stereo", rate});
+    } else if (info.hasVideo && !p.audioOnly()) {
+        for (const AudioTrack &t : info.audio)
+            list.append({QString("[0:a:%1]").arg(t.index), {}, t.sampleRate > 0 ? t.sampleRate : 48000});
+    } else {
+        list.append({"[0:a:0]", {}, rate});
+    }
+    return list;
+}
+
+QString loudnormFilter(const LoudnessTarget &t, const Loudness &m) {
+    QString f = QString("loudnorm=I=%1:TP=%2").arg(t.lufs).arg(t.truePeak);
+    if (!m.valid())
+        return f + ":LRA=11";
+    // A target range at least as wide as the source's keeps loudnorm in
+    // linear mode: one gain for the whole track, the dynamics untouched.
+    const int lra = std::clamp(int(std::ceil(m.range)) + 1, 7, 20);
+    return f + QString(":LRA=%1:measured_I=%2:measured_TP=%3:measured_LRA=%4:measured_thresh=%5:offset=%6:linear=true")
+                   .arg(lra).arg(m.input, 0, 'f', 2).arg(m.truePeak, 0, 'f', 2).arg(m.range, 0, 'f', 2)
+                   .arg(m.threshold, 0, 'f', 2).arg(m.offset, 0, 'f', 2);
+}
+}
+
+int audioStreamCount(const Preset &p, const MediaInfo &info) {
+    return int(audioStreams(p, info).size());
+}
+
+QStringList loudnessArguments(const Preset &p, const MediaInfo &info, const QString &input, int stream,
+                              double start, double length) {
+    const QList<AudioStream> streams = audioStreams(p, info);
+    if (stream < 0 || stream >= streams.size())
+        return {};
+    const AudioStream &s = streams[stream];
+    const LoudnessTarget t = loudnessTarget(p.loudness);
+    QStringList a{"-nostdin", "-hide_banner", "-nostats"};
+    if (start >= 0)
+        a << "-ss" << QString::number(start, 'f', 3);
+    a << "-i" << input;
+    if (length > 0)
+        a << "-t" << QString::number(length, 'f', 3);
+    const QString chain = (s.filter.isEmpty() ? QString() : s.filter + ",")
+                          + QString("loudnorm=I=%1:TP=%2:LRA=11:print_format=json").arg(t.lufs).arg(t.truePeak);
+    a << "-filter_complex" << s.inputs + chain + "[m]" << "-map" << "[m]" << "-f" << "null" << "-";
+    return a;
+}
+
 Command buildCommand(const Preset &p, const MediaInfo &info, const QString &input,
                      const QString &output, double start, double length,
-                     const QString &previewOut, const QString &previewSource) {
+                     const QString &previewOut, const QString &previewSource,
+                     const QList<Loudness> &loudness) {
     Command cmd;
     QStringList &a = cmd.arguments;
     a << "-nostdin" << "-hide_banner" << "-y" << "-loglevel" << "error"
@@ -437,22 +538,44 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
     const bool withAudio = !info.audio.isEmpty() && p.audio != "none";
     QStringList audioMaps;
     if (withAudio) {
-        if (info.splitMono() && !copyAudio) {
-            graph << "[0:a:0][0:a:1]join=inputs=2:channel_layout=stereo[a]";
-            audioMaps << "[a]";
+        if (info.splitMono() && !copyAudio)
             cmd.notes << "Mono tracks 1 and 2 joined into stereo (left, right)";
-        } else if (withVideo) {
-            // Every track: languages, commentary, separate mixes.
-            for (const AudioTrack &t : info.audio)
-                audioMaps << QString("0:a:%1").arg(t.index);
-            if (audioMaps.size() > 1)
-                cmd.notes << QString("All %1 audio tracks kept").arg(audioMaps.size());
-        } else {
-            // Audio files hold one track.
-            audioMaps << "0:a:0";
-            if (info.audio.size() > 1)
-                cmd.notes << QString("Only audio track 1 of %1 converted: a %2 file holds one track")
-                                 .arg(info.audio.size()).arg(container.toUpper());
+        else if (withVideo && info.audio.size() > 1)
+            cmd.notes << QString("All %1 audio tracks kept").arg(info.audio.size());   // languages, commentary, mixes
+        else if (!withVideo && info.audio.size() > 1)
+            cmd.notes << QString("Only audio track 1 of %1 converted: a %2 file holds one track")
+                             .arg(info.audio.size()).arg(container.toUpper());
+
+        const LoudnessTarget target = loudnessTarget(p.loudness);
+        const bool normalise = target.lufs < 0 && !copyAudio;
+        if (normalise)
+            cmd.notes << QString("Loudness set to %1 LUFS (%2), true peak %3 dBTP or lower")
+                             .arg(target.lufs).arg(target.name).arg(target.truePeak);
+        const QList<AudioStream> streams = audioStreams(p, info);
+        for (int k = 0; k < streams.size(); ++k) {
+            const AudioStream &s = streams[k];
+            QStringList filters;
+            if (!s.filter.isEmpty())
+                filters << s.filter;
+            if (normalise) {
+                const Loudness m = k < loudness.size() ? loudness[k] : Loudness();
+                if (loudness.isEmpty() || m.valid()) {
+                    filters << loudnormFilter(target, m);
+                    // loudnorm works at 192 kHz; come back to the track's own rate.
+                    filters << QString("aresample=%1").arg(s.sampleRate);
+                    if (m.valid())
+                        cmd.notes << QString("Audio %1 measured %2 LUFS, peak %3 dBTP")
+                                         .arg(k + 1).arg(m.input, 0, 'f', 1).arg(m.truePeak, 0, 'f', 1);
+                } else {
+                    cmd.notes << QString("Audio %1 is silent, so its level was left alone").arg(k + 1);
+                }
+            }
+            if (filters.isEmpty()) {
+                audioMaps << s.inputs.mid(1, s.inputs.size() - 2);    // "[0:a:1]" → "0:a:1"
+            } else {
+                graph << s.inputs + filters.join(',') + QString("[a%1]").arg(k);
+                audioMaps << QString("[a%1]").arg(k);
+            }
         }
     }
 

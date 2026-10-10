@@ -200,6 +200,8 @@ Dock {
                     text: {
                         if (!job)
                             return "";
+                        if (job.state === "running" && job.message !== "")
+                            return job.message;    // a first pass, e.g. measuring loudness
                         if (job.state === "running" && job.remaining >= 0)
                             return Format.duration(job.elapsed) + " elapsed · " + Format.words(job.remaining) + " left · done around "
                                    + Format.clock(job.finishAt) + " · " + Format.number(job.speed, 2) + "×";

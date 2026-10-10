@@ -304,6 +304,28 @@ ScrollView {
                             { value: 128, text: "128 kbps" }, { value: 160, text: "160 kbps" }, { value: 192, text: "192 kbps" },
                             { value: 256, text: "256 kbps" }, { value: 320, text: "320 kbps — highest" }] }
                     }
+                    Field {
+                        label: "Loudness"
+                        visible: p.audio !== "none" && p.audio !== "copy"
+                        ColumnLayout {
+                            width: Math.min(340, parent.width)
+                            spacing: 4
+                            Choice { key: "loudness"; Layout.fillWidth: true; options: [
+                                { value: "off", text: "As recorded" },
+                                { value: "ebu", text: "Broadcast, EBU R128 — −23 LUFS" },
+                                { value: "atsc", text: "US broadcast, ATSC A/85 — −24 LUFS" },
+                                { value: "web", text: "Podcasts and web — −16 LUFS" },
+                                { value: "stream", text: "Streaming (YouTube, Spotify) — −14 LUFS" }] }
+                            Text {
+                                visible: root.p.loudness !== undefined && root.p.loudness !== "off"
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                text: "Measured first, then turned up or down evenly: the dynamics stay as they are."
+                                color: theme.dim
+                                font.pixelSize: 11
+                            }
+                        }
+                    }
                 }
 
                 Section {

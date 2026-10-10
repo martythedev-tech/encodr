@@ -181,6 +181,8 @@ signals:
 
 private:
     bool launch();    // starts ffmpeg; start() checks first
+    void measureLoudness(int stream);    // the first pass, one audio stream at a time
+    void encode();                       // the conversion itself
     void setState(const QString &state, const QString &message = {});
     void scanLevels(int track);
     void makePoster(double at);
@@ -205,6 +207,8 @@ private:
     QString m_engine = "cpu";
     QString m_engineDevice;
     QString m_fallbackNote;     // why a GPU run was redone on the CPU
+    QList<Loudness> m_loudness;     // measured for this run, one per audio stream
+    bool m_loudnessReady = false;
     double m_trimIn = 0;
     double m_trimOut = 0;       // 0 = the end
     double m_posterTime = 0;

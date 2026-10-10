@@ -100,7 +100,8 @@ void Job::setEngine(const QString &engine, const QString &device) {
 Command Job::command(const QString &output, bool previews) const {
     const bool cut = trimmed();
     return buildCommand(runPreset(), m_info, m_input, output, cut ? m_trimIn : -1, cut ? length() : -1,
-                        previews ? m_previewOut : QString(), previews ? m_previewSource : QString());
+                        previews ? m_previewOut : QString(), previews ? m_previewSource : QString(),
+                        m_loudnessReady ? m_loudness : QList<Loudness>());
 }
 
 QString Job::commandLine() const {
@@ -288,19 +289,16 @@ bool Job::start() {
         return false;
     }
     m_fallbackNote.clear();
+    m_loudness.clear();
+    m_loudnessReady = false;
     return launch();
 }
 
 bool Job::launch() {
-    const QString partial = partialPathFor(m_finalPath);
     QFile::remove(m_previewOut);
     m_previewTime = QDateTime();
     m_hasLivePreview = false;
     emit previewChanged();
-    const Command command = this->command(partial, true);
-    m_runNotes = command.notes;
-    if (!m_fallbackNote.isEmpty())
-        m_runNotes.prepend(m_fallbackNote);
 
     m_parser = ProgressParser();
     m_last = ProgressSample();
@@ -320,6 +318,69 @@ bool Job::launch() {
     m_cancelling = false;
     m_freeSpace = QStorageInfo(m_outputFolder).bytesAvailable();
 
+    m_activeMsBeforePause = 0;
+    m_clock.start();
+    m_startedAt = QDateTime::currentDateTime();
+    m_finishedAt = QDateTime();
+    setState("running");
+    emit statsChanged();
+
+    // A loudness target needs each audio stream measured first (once per
+    // run: a GPU fallback reuses the numbers).
+    const bool measure = !m_loudnessReady && !m_preset.copiesAudio() && loudnessTarget(m_preset.loudness).lufs < 0
+                         && audioStreamCount(m_preset, m_info) > 0;
+    if (measure)
+        measureLoudness(0);
+    else
+        encode();
+    return true;
+}
+
+void Job::measureLoudness(int stream) {
+    if (stream >= audioStreamCount(m_preset, m_info)) {
+        m_loudnessReady = true;
+        encode();
+        return;
+    }
+    const int count = audioStreamCount(m_preset, m_info);
+    m_message = count > 1 ? QString("Measuring loudness, audio %1 of %2…").arg(stream + 1).arg(count)
+                          : QString("Measuring loudness…");
+    emit stateChanged();
+
+    auto *process = new QProcess(this);
+    m_process = process;
+    process->setProcessChannelMode(QProcess::MergedChannels);
+    connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart)
+            return;
+        process->deleteLater();
+        m_clock.invalidate();
+        setState("failed", "ffmpeg isn't installed, so Encodr can't convert anything. Install ffmpeg.");
+        emit finished(false);
+    });
+    connect(process, &QProcess::finished, this, [this, process, stream](int code, QProcess::ExitStatus status) {
+        if (m_cancelling || status != QProcess::NormalExit || code != 0) {
+            m_errors = process->readAll().right(kErrorTail);
+            onFinished(code, status);    // stopped, or ffmpeg couldn't read the audio
+            return;
+        }
+        m_loudness.append(parseLoudnorm(process->readAll()));
+        process->deleteLater();
+        measureLoudness(stream + 1);
+    });
+    const bool cut = trimmed();
+    process->start("ffmpeg", loudnessArguments(m_preset, m_info, m_input, stream, cut ? m_trimIn : -1,
+                                               cut ? length() : -1));
+}
+
+void Job::encode() {
+    const Command command = this->command(partialPathFor(m_finalPath), true);
+    m_runNotes = command.notes;
+    if (!m_fallbackNote.isEmpty())
+        m_runNotes.prepend(m_fallbackNote);
+    m_message.clear();
+    emit stateChanged();
+
     auto *process = new QProcess(this);
     m_process = process;
     connect(process, &QProcess::readyReadStandardOutput, this, &Job::readProgress);
@@ -338,15 +399,8 @@ bool Job::launch() {
     });
     connect(process, &QProcess::finished, this, &Job::onFinished);
 
-    m_activeMsBeforePause = 0;
-    m_clock.start();
-    m_startedAt = QDateTime::currentDateTime();
-    m_finishedAt = QDateTime();
-    setState("running");
     emit presetChanged();
-    emit statsChanged();
     process->start("ffmpeg", command.arguments);
-    return true;
 }
 
 void Job::pause() {

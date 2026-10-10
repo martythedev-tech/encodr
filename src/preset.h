@@ -33,6 +33,9 @@ struct Preset {
     int maxHeight = 0;             // 0 = keep the source size
     QString audio = "aac";         // aac, pcm24, pcm16, flac, alac, opus, mp3, none, copy
     int audioKbps = 320;
+    // off, ebu (-23 LUFS), atsc (-24), web (-16) or stream (-14): measured
+    // in a first pass, then set evenly in the conversion.
+    QString loudness = "off";
     bool deinterlace = true;       // only applied when the source is interlaced
     bool burnTimecode = false;
     QString watermark;
@@ -68,9 +71,39 @@ struct Command {
 // start/length < 0 mean the whole file. With preview paths, ffmpeg also keeps
 // a small JPEG of the frame it's working on up to date, once per second of
 // media: the source as decoded, and the picture after Encodr's processing.
+// One audio stream's loudness, from ffmpeg's loudnorm in its measuring
+// pass. NaN where it couldn't say (a silent track measures -inf).
+struct Loudness {
+    double input = NAN;       // integrated, LUFS
+    double truePeak = NAN;    // dBTP
+    double range = NAN;       // LU
+    double threshold = NAN;
+    double offset = 0;
+    bool valid() const {
+        return std::isfinite(input) && std::isfinite(truePeak) && std::isfinite(range) && std::isfinite(threshold);
+    }
+};
+
+struct LoudnessTarget {
+    double lufs = 0;          // 0 = off
+    double truePeak = -1;
+    QString name;             // "EBU R128"…
+};
+LoudnessTarget loudnessTarget(const QString &id);
+// The measurement loudnorm prints as JSON at the end of its run.
+Loudness parseLoudnorm(const QByteArray &output);
+// How many audio streams the output gets, and the measuring pass for one of
+// them (the same tracks, joins and trim as the conversion).
+int audioStreamCount(const Preset &preset, const MediaInfo &info);
+QStringList loudnessArguments(const Preset &preset, const MediaInfo &info, const QString &input, int stream,
+                              double start = -1, double length = -1);
+
+// `loudness` holds the measuring pass's result for each audio stream; without
+// it, a loudness target is shown as a one-pass filter.
 Command buildCommand(const Preset &preset, const MediaInfo &info, const QString &input,
                      const QString &output, double start = -1, double length = -1,
-                     const QString &previewOut = {}, const QString &previewSource = {});
+                     const QString &previewOut = {}, const QString &previewSource = {},
+                     const QList<Loudness> &loudness = {});
 
 // Input options that relabel blank colour tags in the bitstream, if needed.
 QStringList colourFixArguments(const MediaInfo &info);
