@@ -119,6 +119,7 @@ ApplicationWindow {
                 spacing: 8
 
                 Text { text: "Encodr"; color: theme.foreground; font.pixelSize: 15; font.weight: Font.DemiBold }
+                Text { text: Qt.application.version; color: theme.dim; font.pixelSize: 11; Layout.alignment: Qt.AlignBaseline }
                 Rectangle { visible: status.text !== ""; implicitWidth: 1; implicitHeight: 14; color: theme.border; Layout.leftMargin: 4; Layout.rightMargin: 4 }
                 Text {
                     id: status

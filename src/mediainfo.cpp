@@ -44,6 +44,11 @@ bool MediaInfo::splitMono() const {
     return true;
 }
 
+bool SubtitleTrack::isText() const {
+    static const QStringList text{"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"};
+    return text.contains(codec);
+}
+
 qint64 MediaInfo::estimatedFrames() const {
     return hasVideo && fps > 0 ? qint64(std::llround(duration * fps)) : 0;
 }
@@ -56,6 +61,8 @@ QString MediaInfo::summary() const {
     if (!audio.isEmpty())
         parts << (splitMono() ? QString("%1 mono tracks").arg(audio.size())
                               : QString("%1 audio track%2").arg(audio.size()).arg(audio.size() == 1 ? "" : "s"));
+    if (!subtitles.isEmpty())
+        parts << QString("%1 subtitle track%2").arg(subtitles.size()).arg(subtitles.size() == 1 ? "" : "s");
     return parts.join(" · ");
 }
 
@@ -64,13 +71,18 @@ QVariantMap MediaInfo::toVariant() const {
     for (const auto &t : audio) {
         tracks.append(QVariantMap{
             {"index", t.index}, {"codec", t.codec}, {"sampleRate", t.sampleRate},
-            {"channels", t.channels}, {"layout", t.layout}, {"bits", t.bits},
+            {"channels", t.channels}, {"layout", t.layout}, {"bits", t.bits}, {"language", t.language},
             {"bitrate", t.bitrate},
             {"meanDb", std::isnan(t.meanDb) ? QVariant() : QVariant(t.meanDb)},
             {"peakDb", std::isnan(t.peakDb) ? QVariant() : QVariant(t.peakDb)},
         });
     }
+    QVariantList subs;
+    for (const auto &t : subtitles)
+        subs.append(QVariantMap{{"index", t.index}, {"codec", t.codec}, {"language", t.language},
+                                {"title", t.title}, {"text", t.isText()}});
     return {
+        {"subtitles", subs},
         {"valid", valid}, {"error", error}, {"path", path}, {"container", container},
         {"size", size}, {"duration", duration}, {"bitrate", bitrate}, {"timecode", timecode},
         {"creationTime", creationTime}, {"hasVideo", hasVideo}, {"videoCodec", videoCodec},
@@ -106,7 +118,7 @@ MediaInfo parseProbe(const QByteArray &json, const QString &path) {
     info.timecode = formatTags.value("timecode").toString();
     info.creationTime = formatTags.value("creation_time").toString();
 
-    int audioIndex = 0;
+    int audioIndex = 0, subtitleIndex = 0;
     for (const auto &value : doc.object().value("streams").toArray()) {
         const auto s = value.toObject();
         const auto type = s.value("codec_type").toString();
@@ -145,11 +157,19 @@ MediaInfo parseProbe(const QByteArray &json, const QString &path) {
             t.sampleRate = s.value("sample_rate").toString().toInt();
             t.channels = s.value("channels").toInt();
             t.layout = s.value("channel_layout").toString();
+            t.language = tags.value("language").toString();
             t.bits = s.value("bits_per_raw_sample").toString().toInt();
             if (t.bits == 0)
                 t.bits = s.value("bits_per_sample").toInt();
             t.bitrate = s.value("bit_rate").toString().toLongLong();
             info.audio.append(t);
+        } else if (type == "subtitle") {
+            SubtitleTrack t;
+            t.index = subtitleIndex++;
+            t.codec = s.value("codec_name").toString();
+            t.language = tags.value("language").toString();
+            t.title = tags.value("title").toString();
+            info.subtitles.append(t);
         }
     }
 
@@ -185,9 +205,16 @@ QList<Issue> inspect(const MediaInfo &info) {
             detail += QString(" Tracks 3–%1 are not included.").arg(info.audio.size());
         issues.append({"fix", QString("%1 separate mono audio tracks").arg(info.audio.size()), detail});
     } else if (info.audio.size() > 1) {
-        issues.append({"warn", QString("%1 audio tracks").arg(info.audio.size()),
-                       "Only the first audio track is converted."});
+        issues.append({"info", QString("%1 audio tracks").arg(info.audio.size()),
+                       "Video copies keep every track. Audio-only files (WAV, FLAC, M4A) hold one, so they take track 1."});
     }
+    int pictureSubs = 0;
+    for (const SubtitleTrack &t : info.subtitles)
+        pictureSubs += t.isText() ? 0 : 1;
+    if (pictureSubs > 0)
+        issues.append({"info", QString("%1 picture subtitle track%2").arg(pictureSubs).arg(pictureSubs == 1 ? "" : "s"),
+                       "Blu-ray and DVD subtitles are pictures, which MP4 and MOV can't hold. They're kept in MKV "
+                       "copies; text subtitles are kept in every video copy."});
     if (info.hasVideo && info.audio.isEmpty())
         issues.append({"info", "No audio", "This file has no audio tracks."});
 

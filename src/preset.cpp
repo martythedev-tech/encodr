@@ -326,15 +326,54 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
     }
 
     const bool withAudio = !info.audio.isEmpty() && p.audio != "none";
-    QString audioMap;
+    QStringList audioMaps;
     if (withAudio) {
         if (info.splitMono()) {
             graph << "[0:a:0][0:a:1]join=inputs=2:channel_layout=stereo[a]";
-            audioMap = "[a]";
+            audioMaps << "[a]";
             cmd.notes << "Mono tracks 1 and 2 joined into stereo (left, right)";
+        } else if (withVideo) {
+            // Every track: languages, commentary, separate mixes.
+            for (const AudioTrack &t : info.audio)
+                audioMaps << QString("0:a:%1").arg(t.index);
+            if (audioMaps.size() > 1)
+                cmd.notes << QString("All %1 audio tracks kept").arg(audioMaps.size());
         } else {
-            audioMap = "0:a:0";
+            // Audio files hold one track.
+            audioMaps << "0:a:0";
+            if (info.audio.size() > 1)
+                cmd.notes << QString("Only audio track 1 of %1 converted: a %2 file holds one track")
+                                 .arg(info.audio.size()).arg(p.container.toUpper());
         }
+    }
+
+    // Subtitles: text becomes the container's own kind; pictures (Blu-ray,
+    // DVD) only fit MKV, which takes every kind as it is.
+    QStringList subtitleMaps;
+    QString subtitleCodec;
+    if (withVideo && !info.subtitles.isEmpty()) {
+        int pictures = 0;
+        if (p.container == "mkv") {
+            subtitleCodec = "copy";
+        } else if (p.container == "mp4" || p.container == "mov" || p.container == "webm") {
+            subtitleCodec = p.container == "webm" ? "webvtt" : "mov_text";
+        }
+        for (const SubtitleTrack &t : info.subtitles) {
+            if (subtitleCodec.isEmpty())
+                continue;
+            if (subtitleCodec == "copy" || t.isText())
+                subtitleMaps << QString("0:s:%1").arg(t.index);
+            else
+                ++pictures;
+        }
+        if (!subtitleMaps.isEmpty())
+            cmd.notes << QString("%1 subtitle track%2 kept").arg(subtitleMaps.size()).arg(subtitleMaps.size() == 1 ? "" : "s");
+        if (pictures > 0)
+            cmd.notes << QString("%1 picture subtitle track%2 left out: %3 can't hold %4; MKV can")
+                             .arg(pictures).arg(pictures == 1 ? "" : "s").arg(p.container.toUpper())
+                             .arg(pictures == 1 ? "it" : "them");
+        else if (subtitleCodec.isEmpty())
+            cmd.notes << QString("Subtitles left out: a %1 file has no place for them").arg(p.container.toUpper());
     }
 
     if (!graph.isEmpty())
@@ -390,7 +429,8 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
     }
 
     if (withAudio) {
-        a << "-map" << audioMap;
+        for (const QString &map : audioMaps)
+            a << "-map" << map;
         const int rate = info.audio.first().sampleRate;
         const bool lossy = p.audio == "aac" || p.audio == "opus" || p.audio == "mp3";
         if (p.audio == "aac")
@@ -413,8 +453,14 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
         a << "-an";
     }
 
-    // Data tracks (timecode, captions) are rebuilt rather than copied.
-    a << "-dn" << "-sn";
+    for (const QString &map : subtitleMaps)
+        a << "-map" << map;
+    if (!subtitleMaps.isEmpty())
+        a << "-c:s" << subtitleCodec;
+    else
+        a << "-sn";
+    // Data tracks (timecode) are rebuilt rather than copied.
+    a << "-dn";
     const bool quicktime = p.container == "mp4" || p.container == "mov" || p.container == "m4a";
     if (quicktime && withVideo && !info.timecode.isEmpty() && start < 0)
         a << "-timecode" << info.timecode;

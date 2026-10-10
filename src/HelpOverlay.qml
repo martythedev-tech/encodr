@@ -40,7 +40,11 @@ Rectangle {
             anchors.fill: parent
             anchors.margins: 20
             spacing: 7
-            Text { text: "Keyboard shortcuts"; color: theme.foreground; font.pixelSize: 15; font.weight: Font.DemiBold; Layout.bottomMargin: 8 }
+            RowLayout {
+                Layout.bottomMargin: 8
+                Text { text: "Keyboard shortcuts"; color: theme.foreground; font.pixelSize: 15; font.weight: Font.DemiBold; Layout.fillWidth: true }
+                Text { text: "Encodr " + Qt.application.version; color: theme.dim; font.pixelSize: 11 }
+            }
             Repeater {
                 model: root.keys
                 RowLayout {

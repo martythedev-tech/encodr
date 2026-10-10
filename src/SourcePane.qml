@@ -131,7 +131,9 @@ ScrollView {
                     Layout.fillWidth: true
                     spacing: 4
                     Text {
-                        text: "Track " + (modelData.index + 1) + ":  " + modelData.codec + " · " + (modelData.sampleRate / 1000) + " kHz"
+                        text: "Track " + (modelData.index + 1) + ":  "
+                              + (modelData.language && modelData.language !== "und" ? modelData.language + " · " : "")
+                              + modelData.codec + " · " + (modelData.sampleRate / 1000) + " kHz"
                               + (modelData.bits ? " · " + modelData.bits + "-bit" : "") + " · "
                               + (modelData.channels === 1 ? "mono" : modelData.channels === 2 ? "stereo" : modelData.channels + " channels")
                               + (modelData.bitrate ? " · " + Format.bps(modelData.bitrate) : "")
@@ -175,6 +177,25 @@ ScrollView {
                 text: "Levels measured over 30 seconds in the middle of the file."
                 color: theme.dim
                 font.pixelSize: 11
+            }
+        }
+
+        Section {
+            title: "Subtitles"
+            visible: info.subtitles !== undefined && info.subtitles.length > 0
+            Repeater {
+                model: info.subtitles || []
+                Text {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    text: "Track " + (modelData.index + 1) + ":  "
+                          + (modelData.language && modelData.language !== "und" ? modelData.language + " · " : "")
+                          + modelData.codec + (modelData.text ? " (text)" : " (picture)")
+                          + (modelData.title ? " · " + modelData.title : "")
+                    color: theme.foreground
+                    font.pixelSize: 12
+                }
             }
         }
 

@@ -11,11 +11,22 @@ struct AudioTrack {
     int sampleRate = 0;
     int channels = 0;
     QString layout;
+    QString language;
     int bits = 0;
     qint64 bitrate = 0;
     // Filled in later by a level scan; NaN until then.
     double meanDb = NAN;
     double peakDb = NAN;
+};
+
+struct SubtitleTrack {
+    int index = 0;          // nth subtitle stream (0:s:N)
+    QString codec;          // subrip, ass, mov_text, hdmv_pgs_subtitle…
+    QString language;
+    QString title;
+    // Text can be turned into any container's subtitle format; pictures
+    // (Blu-ray PGS, DVD) only fit containers that carry them as they are.
+    bool isText() const;
 };
 
 struct MediaInfo {
@@ -47,6 +58,7 @@ struct MediaInfo {
     QString colorSpace;
 
     QList<AudioTrack> audio;
+    QList<SubtitleTrack> subtitles;
 
     bool interlaced() const;
     // Tags the decoder can't convert from: "reserved" stops ffmpeg's scaler cold.

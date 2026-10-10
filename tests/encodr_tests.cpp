@@ -111,6 +111,58 @@ private slots:
         QVERIFY(cmd.notes.contains("Colour labels set to Rec. 709"));
     }
 
+    void everyAudioTrackAndSubtitleKept() {
+        const QByteArray probe = R"({"format": {"format_name": "matroska,webm", "duration": "60.0", "size": "1000"},
+            "streams": [
+              {"codec_type": "video", "codec_name": "h264", "width": 1920, "height": 1080, "avg_frame_rate": "25/1", "pix_fmt": "yuv420p"},
+              {"codec_type": "audio", "codec_name": "aac", "channels": 2, "sample_rate": "48000", "tags": {"language": "eng"}},
+              {"codec_type": "audio", "codec_name": "aac", "channels": 2, "sample_rate": "48000", "tags": {"language": "spa"}},
+              {"codec_type": "audio", "codec_name": "ac3", "channels": 6, "sample_rate": "48000"},
+              {"codec_type": "subtitle", "codec_name": "subrip", "tags": {"language": "eng"}},
+              {"codec_type": "subtitle", "codec_name": "hdmv_pgs_subtitle", "tags": {"language": "fra", "title": "Forced"}}
+            ]})";
+        const MediaInfo info = parseProbe(probe, "/x/film.mkv");
+        QCOMPARE(info.audio.size(), 3);
+        QCOMPARE(info.subtitles.size(), 2);
+        QVERIFY(info.subtitles[0].isText());
+        QVERIFY(!info.subtitles[1].isText());
+        QCOMPARE(info.subtitles[1].language, QString("fra"));
+        QVERIFY(info.summary().contains("2 subtitle tracks"));
+        QStringList titles;
+        for (const auto &i : inspect(info))
+            titles << i.level + ":" + i.title;
+        QVERIFY(titles.contains("info:3 audio tracks"));
+        QVERIFY(titles.contains("info:1 picture subtitle track"));
+
+        // MP4: all audio; the text subtitle as MP4 text, the picture one left out.
+        Command cmd = buildCommand(builtinPresets().first(), info, "/x/film.mkv", "/y/out.mp4");
+        QString joined = cmd.arguments.join(' ');
+        QVERIFY(joined.contains("-map 0:a:0 -map 0:a:1 -map 0:a:2"));
+        QVERIFY(joined.contains("-map 0:s:0 -c:s mov_text"));
+        QVERIFY(!joined.contains("0:s:1"));
+        QVERIFY(!joined.contains("-sn"));
+        QVERIFY(cmd.notes.contains("All 3 audio tracks kept"));
+        QVERIFY(cmd.notes.contains("1 picture subtitle track left out: MP4 can't hold it; MKV can"));
+
+        // MKV takes both subtitles as they are.
+        Preset mkv = builtinPresets().first();
+        mkv.container = "mkv";
+        joined = buildCommand(mkv, info, "/x/film.mkv", "/y/out.mkv").arguments.join(' ');
+        QVERIFY(joined.contains("-map 0:s:0 -map 0:s:1 -c:s copy"));
+
+        // An audio file holds one track, and says so.
+        Preset wav;
+        for (const Preset &p : builtinPresets())
+            if (p.container == "wav")
+                wav = p;
+        cmd = buildCommand(wav, info, "/x/film.mkv", "/y/out.wav");
+        joined = cmd.arguments.join(' ');
+        QVERIFY(joined.contains("-map 0:a:0"));
+        QVERIFY(!joined.contains("0:a:1"));
+        QVERIFY(joined.contains("-sn"));
+        QVERIFY(cmd.notes.contains("Only audio track 1 of 3 converted: a WAV file holds one track"));
+    }
+
     void timecodeBurnFollowsPreviewStart() {
         const MediaInfo info = parseProbe(kKiPro, "/x/in.mov");
         Preset p = builtinPresets()[1];
