@@ -26,7 +26,17 @@ below; and the source details beside live stats. The layout is remembered.
   GPU is doing the work.
 - **Presets that adapt to the source.** Review copy (H.264), review copy with
   burned-in timecode, small share copy, HEVC, ProRes Proxy and 422, lossless
-  WAV and FLAC, AAC audio. Tune any setting and save your own.
+  WAV and FLAC, AAC audio, a lossless cut, and a rewrap to MP4. Tune any
+  setting and save your own.
+- **Trim to just the part you need.** Drag the in and out points under the
+  preview; it shows the exact frame as you go. Any preset converts only that
+  part, and a trimmed copy keeps its place on the source's timecode.
+- **Cut or rewrap without re-encoding.** Copy the video and audio exactly as
+  they are, in seconds: a lossless cut in the same file type, or MKV and MOV
+  into an MP4 that plays anywhere. Encodr says up front when a stream won't
+  fit the new file type (ProRes or uncompressed audio into MP4, say).
+- **Nothing left behind.** Every audio track is kept, with its language, and
+  subtitles come along (as MP4 text, or exactly as they are in MKV).
 - **A source inspector that explains problems and fixes them.** Blank colour
   labels (common on Ki Pro and other recorders), interlaced video, audio split
   across mono tracks, clipping and silent tracks, read-only source drives.
