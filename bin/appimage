@@ -35,6 +35,9 @@ export EXTRA_QT_MODULES="svg"
 export EXTRA_PLATFORM_PLUGINS="$WAYLAND"
 export LINUXDEPLOY_OUTPUT_VERSION="$VERSION"
 export LDAI_OUTPUT="$ROOT/build/Encodr-$VERSION-$ARCH.AppImage"
+# ffmpeg's libraries find each other relative to themselves; linuxdeploy
+# needs telling where they are.
+export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 linuxdeploy --appdir "$APPDIR" \
     --executable "$ROOT/build/encodr" \
