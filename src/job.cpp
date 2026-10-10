@@ -78,16 +78,33 @@ QString Job::outputPath() const {
     return uniquePath(QDir(m_outputFolder).filePath(base + "." + extensionFor(m_preset)));
 }
 
+Preset Job::runPreset() const {
+    Preset p = m_preset;
+    if (p.usesVideoEncoder()) {
+        p.hardware = m_engine;
+        p.hardwareDevice = m_engineDevice;
+    }
+    return p;
+}
+
+void Job::setEngine(const QString &engine, const QString &device) {
+    if (isActive() || (engine == m_engine && device == m_engineDevice))
+        return;
+    m_engine = engine.isEmpty() ? QString("cpu") : engine;
+    m_engineDevice = device;
+    emit presetChanged();
+}
+
 QString Job::commandLine() const {
     if (!m_info.valid)
         return {};
-    return "ffmpeg " + shellQuote(buildCommand(m_preset, m_info, m_input, outputPath()).arguments);
+    return "ffmpeg " + shellQuote(buildCommand(runPreset(), m_info, m_input, outputPath()).arguments);
 }
 
 QStringList Job::notes() const {
     if (isActive() || isFinished())
         return m_runNotes;
-    return m_info.valid ? buildCommand(m_preset, m_info, m_input, outputPath()).notes : QStringList();
+    return m_info.valid ? buildCommand(runPreset(), m_info, m_input, outputPath()).notes : QStringList();
 }
 
 QString Job::partialPathFor(const QString &output) {
@@ -221,13 +238,20 @@ bool Job::start() {
         setState("failed", "The output would replace the original. Choose another folder or preset.");
         return false;
     }
+    m_fallbackNote.clear();
+    return launch();
+}
+
+bool Job::launch() {
     const QString partial = partialPathFor(m_finalPath);
     QFile::remove(m_previewOut);
     m_previewTime = QDateTime();
     m_hasLivePreview = false;
     emit previewChanged();
-    const Command command = buildCommand(m_preset, m_info, m_input, partial, -1, -1, m_previewOut, m_previewSource);
+    const Command command = buildCommand(runPreset(), m_info, m_input, partial, -1, -1, m_previewOut, m_previewSource);
     m_runNotes = command.notes;
+    if (!m_fallbackNote.isEmpty())
+        m_runNotes.prepend(m_fallbackNote);
 
     m_parser = ProgressParser();
     m_last = ProgressSample();
@@ -471,6 +495,20 @@ void Job::onFinished(int code, QProcess::ExitStatus status) {
     QString why = lines.join('\n').trimmed();
     if (why.isEmpty())
         why = status == QProcess::CrashExit ? "ffmpeg crashed." : QString("ffmpeg stopped with code %1.").arg(code);
+
+    // A GPU encoder can refuse a file the CPU handles fine (a size or format
+    // the card doesn't support, a driver hiccup): redo it on the CPU rather
+    // than fail, and say so.
+    if (runPreset().usesVideoEncoder() && m_engine != "cpu") {
+        m_fallbackNote = QString("The GPU encoder failed (%1), so this file was converted on the CPU instead")
+                             .arg(lines.isEmpty() ? QString("no reason given") : lines.last().trimmed());
+        m_engine = "cpu";
+        m_engineDevice.clear();
+        m_errors.clear();
+        emit presetChanged();
+        if (launch())
+            return;
+    }
     m_finalPath.clear();
     setState("failed", why);
     emit statsChanged();

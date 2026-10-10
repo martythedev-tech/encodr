@@ -23,7 +23,8 @@ public:
     ~CycleCounter();
 
     bool available() const { return !m_pmus.isEmpty(); }
-    void setProcess(qint64 pid);
+    void setProcess(qint64 pid) { setProcesses(pid > 0 ? QList<qint64>{pid} : QList<qint64>{}); }
+    void setProcesses(const QList<qint64> &pids);
     // Opens counters for any new threads, then reads every counter and
     // returns the speed per cluster since the previous call.
     QVector<Cluster> sample();
@@ -44,6 +45,6 @@ private:
 
     QString m_proc;
     QVector<Pmu> m_pmus;
-    qint64 m_pid = 0;
+    QList<qint64> m_pids;
     QHash<int, QVector<Counter>> m_threads;    // tid -> one counter per PMU
 };

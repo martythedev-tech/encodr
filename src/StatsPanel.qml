@@ -81,8 +81,9 @@ Dock {
                         return root.done ? share + " " + Format.bytes(info.size) : "→ " + Format.bytes(job.projectedSize) + " projected · " + share;
                     }
                 }
-                StatTile { compact: true; label: "Encoder CPU"; value: root.live ? Format.number(tel.processCpu, 0) + "%" : job && job.peakCpu > 0 ? Format.number(job.peakCpu, 0) + "%" : "—"
-                           detail: root.live ? "of all " + tel.coreCount + " cores · peak " + Format.number(job.peakCpu, 0) + "%" : job && job.peakCpu > 0 ? "peak" : "" }
+                StatTile { compact: true; label: "Encoder CPU"; value: root.live ? Format.number(job.cpu, 0) + "%" : job && job.peakCpu > 0 ? Format.number(job.peakCpu, 0) + "%" : "—"
+                       detail: root.live ? (backend.runningCount > 1 ? "all " + backend.runningCount + " files " + Format.number(tel.processCpu, 0) + "% · " : "of all " + tel.coreCount + " cores · ")
+                                           + "peak " + Format.number(job.peakCpu, 0) + "%" : job && job.peakCpu > 0 ? "peak" : "" }
                 StatTile { compact: true; label: "Energy used"; value: job && job.energyWh > 0 ? Format.number(job.energyWh, job.energyWh < 10 ? 2 : 1) + " Wh" : "—"
                            detail: tel.systemWatts > 0 ? "whole computer now " + Format.number(tel.systemWatts, 1) + " W" : "" }
                 StatTile { compact: true;
@@ -116,7 +117,7 @@ Dock {
                 Graph { Layout.fillWidth: true; implicitHeight: 84; color: theme.background; title: "Output bitrate"; values: hist.bitrate || []
                         current: job ? Format.bitrate(job.bitrateKbps) : ""; lineColor: theme.warn }
                 Graph { Layout.fillWidth: true; implicitHeight: 84; color: theme.background; title: "Encoder CPU (% of the machine)"; values: hist.cpu || []; floor: 100
-                        current: root.live ? Format.number(tel.processCpu, 0) + "%" : ""; lineColor: theme.bad }
+                        current: root.live ? Format.number(job.cpu, 0) + "%" : ""; lineColor: theme.bad }
                 Graph { Layout.fillWidth: true; implicitHeight: 84; color: theme.background; Layout.columnSpan: parent.columns; title: "Power draw, whole computer (W)"; values: hist.watts || []
                         current: tel.systemWatts > 0 ? Format.number(tel.systemWatts, 1) + " W" : ""; lineColor: theme.dim
                         visible: tel.systemWatts > 0 }

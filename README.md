@@ -15,8 +15,13 @@ below; and the source details beside live stats. The layout is remembered.
   Mac drive through apfs-fuse) across the top; every video shows a thumbnail
   and its length, picture size, codec and frame rate. Files that already have
   a converted copy beside them get a tick. Double-click or drag to queue.
-- **A queue.** Add as many files (or folders) as you like; they convert one
-  after another. Reorder, remove, undo, retry.
+- **A queue that uses the whole machine.** Add as many files (or folders) as
+  you like. Big computers convert several side by side (automatically: one
+  per eight cores, up to four, or choose). Reorder, remove, undo, retry.
+- **GPU encoding (experimental, off by default).** Encodr finds the hardware
+  encoders that really work on this machine (NVIDIA NVENC, Intel Quick Sync,
+  VA-API for Intel and AMD) and can use them for H.264 and HEVC: much faster,
+  slightly larger files. If the GPU refuses a file, it's redone on the CPU.
 - **Presets that adapt to the source.** Review copy (H.264), review copy with
   burned-in timecode, small share copy, HEVC, ProRes Proxy and 422, lossless
   WAV and FLAC, AAC audio. Tune any setting and save your own.
@@ -35,7 +40,8 @@ below; and the source details beside live stats. The layout is remembered.
   encoder really gets (measured from its CPU cycles, because the kernel only
   reports the speed it asked for), a warning when heat slows the CPU and how
   long it did, temperatures and power draw from whatever sensors the kernel
-  exposes.
+  exposes, and the graphics card's load, encoder load and clocks (NVIDIA,
+  AMD, Intel).
 - **Pause and resume** a conversion exactly where it is. Sleep and lid-close
   suspend are blocked while converting (not while paused, so a paused job can
   wait through sleep), and a notification says when it's done.

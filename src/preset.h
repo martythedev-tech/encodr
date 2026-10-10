@@ -31,7 +31,13 @@ struct Preset {
     bool deinterlace = true;       // only applied when the source is interlaced
     bool burnTimecode = false;
     QString watermark;
+    // Where H.264/HEVC are encoded: "auto" (a working GPU encoder when GPU
+    // encoding is switched on, otherwise the CPU), "cpu", "nvenc", "qsv" or
+    // "vaapi". The job resolves "auto" before building the command.
+    QString hardware = "auto";
+    QString hardwareDevice;        // the VA-API render node; set per run, not saved
 
+    bool usesVideoEncoder() const { return video == "h264" || video == "hevc"; }
     bool audioOnly() const { return video == "none"; }
     QVariantMap toVariant() const;
     static Preset fromVariant(const QVariantMap &map);

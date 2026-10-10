@@ -1,5 +1,6 @@
 #include "preset.h"
 
+#include <QHash>
 #include <QRegularExpression>
 #include <cmath>
 
@@ -9,6 +10,7 @@ QVariantMap Preset::toVariant() const {
         {"container", container}, {"video", video}, {"crf", crf}, {"maxrateKbps", maxrateKbps},
         {"speed", speed}, {"maxHeight", maxHeight}, {"audio", audio}, {"audioKbps", audioKbps},
         {"deinterlace", deinterlace}, {"burnTimecode", burnTimecode}, {"watermark", watermark},
+        {"hardware", hardware},
         {"audioOnly", audioOnly()},
     };
 }
@@ -31,6 +33,7 @@ Preset Preset::fromVariant(const QVariantMap &m) {
     p.deinterlace = m.value("deinterlace", p.deinterlace).toBool();
     p.burnTimecode = m.value("burnTimecode", p.burnTimecode).toBool();
     p.watermark = m.value("watermark").toString();
+    p.hardware = m.value("hardware", p.hardware).toString();
     return p;
 }
 
@@ -180,12 +183,36 @@ bool knownTag(const QString &value) {
     return !value.isEmpty() && value != "unknown" && value != "reserved" && value != "reserved0";
 }
 
+bool onGpu(const Preset &p) {
+    return p.usesVideoEncoder() && (p.hardware == "nvenc" || p.hardware == "qsv" || p.hardware == "vaapi");
+}
+
 QString pixelFormatFor(const Preset &p) {
     if (p.video.startsWith("prores"))
         return "yuv422p10le";
+    // GPU encoders take their own layouts: NV12 for 8-bit, P010 for 10-bit.
+    if (onGpu(p) && p.hardware != "nvenc")
+        return p.video == "hevc" ? "p010le" : "nv12";
     if (p.video == "hevc")
-        return "yuv420p10le";
+        return onGpu(p) ? "p010le" : "yuv420p10le";
     return "yuv420p";
+}
+
+// The x264 effort names mapped onto NVENC's p1 (fastest) to p7 (best).
+QString nvencPreset(const QString &speed) {
+    static const QHash<QString, QString> map{
+        {"ultrafast", "p1"}, {"superfast", "p1"}, {"veryfast", "p2"}, {"faster", "p3"}, {"fast", "p4"},
+        {"medium", "p5"}, {"slow", "p6"}, {"slower", "p7"}, {"veryslow", "p7"}};
+    return map.value(speed, "p4");
+}
+
+// Quick Sync uses x264's names, but stops at veryfast.
+QString qsvPreset(const QString &speed) {
+    return speed == "ultrafast" || speed == "superfast" ? "veryfast" : speed;
+}
+
+QString gpuName(const QString &id) {
+    return id == "nvenc" ? "NVIDIA NVENC" : id == "qsv" ? "Intel Quick Sync" : "VA-API";
 }
 }
 
@@ -240,6 +267,10 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
         cmd.notes << QString("Colour labels set to %1").arg(hd ? "Rec. 709" : "Rec. 601");
     }
 
+    const bool gpu = withVideo && onGpu(p);
+    if (gpu && p.hardware == "vaapi")
+        a << "-vaapi_device" << (p.hardwareDevice.isEmpty() ? QString("/dev/dri/renderD128") : p.hardwareDevice);
+
     if (start >= 0)
         a << "-ss" << QString::number(start, 'f', 3);
     a << "-i" << input;
@@ -279,13 +310,18 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             cmd.notes << QString("Watermark \"%1\"").arg(mark);
         }
         chain << "format=" + pixelFormatFor(p);
+        // VA-API encodes from GPU memory: only the encoder's branch is
+        // uploaded, so the preview frames stay ordinary pictures.
+        const bool upload = gpu && p.hardware == "vaapi";
         if (previews) {
             graph << "[0:v:0]split=2[vin][sv]";
-            graph << "[vin]" + chain.join(',') + ",split=2[v][pv]";
+            graph << "[vin]" + chain.join(',') + QString(",split=2[%1][pv]").arg(upload ? "vsw" : "v");
+            if (upload)
+                graph << "[vsw]hwupload[v]";
             graph << QString("[pv]%1[pvo]").arg(kPreviewScale);
             graph << QString("[sv]%1[svo]").arg(kPreviewScale);
         } else {
-            graph << "[0:v:0]" + chain.join(',') + "[v]";
+            graph << "[0:v:0]" + chain.join(',') + (upload ? ",hwupload" : "") + "[v]";
         }
     }
 
@@ -309,7 +345,27 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
         const QString prim = knownTag(info.colorPrimaries) ? info.colorPrimaries : defPrim;
         const QString trc = knownTag(info.colorTransfer) ? info.colorTransfer : defPrim;
         const QString space = knownTag(info.colorSpace) ? info.colorSpace : defPrim;
-        if (p.video == "h264") {
+        if (gpu) {
+            const bool hevc = p.video == "hevc";
+            const QString encoder = (hevc ? "hevc_" : "h264_") + p.hardware;
+            a << "-c:v" << encoder;
+            // Constant quality like the CPU path: CRF maps onto each family's
+            // own quality scale, about one step coarser on NVENC.
+            if (p.hardware == "nvenc")
+                a << "-preset" << nvencPreset(p.speed) << "-tune" << "hq" << "-rc" << "vbr"
+                  << "-cq" << QString::number(p.crf + 1) << "-b:v" << "0";
+            else if (p.hardware == "qsv")
+                a << "-preset" << qsvPreset(p.speed) << "-global_quality" << QString::number(p.crf);
+            else
+                a << "-rc_mode" << "CQP" << "-qp" << QString::number(p.crf);
+            a << "-profile:v" << (hevc ? "main10" : "high");
+            // VA-API in constant-QP mode has no rate cap to honour.
+            if (p.maxrateKbps > 0 && p.hardware != "vaapi")
+                a << "-maxrate" << QString("%1k").arg(p.maxrateKbps) << "-bufsize" << QString("%1k").arg(p.maxrateKbps * 2);
+            if (hevc)
+                a << "-tag:v" << "hvc1";
+            cmd.notes << QString("Encoded on the GPU (%1)").arg(gpuName(p.hardware));
+        } else if (p.video == "h264") {
             a << "-c:v" << "libx264" << "-preset" << p.speed << "-crf" << QString::number(p.crf)
               << "-profile:v" << "high";
             if (p.maxrateKbps > 0)

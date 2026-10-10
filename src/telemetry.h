@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QHash>
+#include <QList>
 #include <QObject>
 #include <QTimer>
 #include <QVariantList>
@@ -26,6 +28,7 @@ class Telemetry : public QObject {
     Q_PROPERTY(double hottest READ hottest NOTIFY updated)
     Q_PROPERTY(double systemWatts READ systemWatts NOTIFY updated)
     Q_PROPERTY(int coreCount READ coreCount CONSTANT)
+    Q_PROPERTY(QVariantList gpus READ gpus NOTIFY updated)
 
 public:
     explicit Telemetry(const QString &sysRoot = {}, const QString &procRoot = {}, QObject *parent = nullptr);
@@ -44,8 +47,18 @@ public:
     double hottest() const { return m_hottest; }
     double systemWatts() const { return m_systemWatts; }
     int coreCount() const { return m_coreCount; }
+    // Each graphics card: {name, busy, encoder, mhz, maxMhz, celsius, watts},
+    // -1 where the driver doesn't say.
+    QVariantList gpus() const { return m_gpus; }
 
-    void setProcess(qint64 pid);
+    // What `nvidia-smi --query-gpu=... --format=csv,noheader,nounits` prints,
+    // as GPU entries (used directly by tests).
+    static QVariantList parseNvidiaSmi(const QByteArray &output, bool withEncoder);
+
+    void setProcess(qint64 pid) { setProcesses(pid > 0 ? QList<qint64>{pid} : QList<qint64>{}); }
+    // Several conversions can run at once; processCpu is their total.
+    void setProcesses(const QList<qint64> &pids);
+    double processCpuFor(qint64 pid) const { return m_processCpuByPid.value(pid); }
     Q_INVOKABLE void sample();
 
 signals:
@@ -56,6 +69,8 @@ private:
     void sampleProcess();
     void sampleClocks();
     void sampleSensors();
+    void sampleGpus();
+    void queryNvidia();
 
     QString m_sys;
     QString m_proc;
@@ -65,9 +80,10 @@ private:
 
     QVector<quint64> m_prevBusy;
     QVector<quint64> m_prevTotal;
-    qint64 m_pid = 0;
-    quint64 m_prevProcTicks = 0;
+    QList<qint64> m_pids;
+    QHash<qint64, quint64> m_prevProcTicks;
     qint64 m_prevProcAt = 0;
+    QHash<qint64, double> m_processCpuByPid;
 
     double m_cpuTotal = 0;
     QVariantList m_cores;
@@ -81,4 +97,11 @@ private:
     QVariantList m_power;
     double m_hottest = 0;
     double m_systemWatts = 0;
+    QVariantList m_gpus;
+    QVariantList m_drmGpus;
+    QVariantList m_nvidiaGpus;
+    QString m_nvidiaSmi;
+    bool m_nvidiaEncoderField = true;   // older drivers don't know utilization.encoder
+    bool m_nvidiaBusy = false;
+    int m_ticks = 0;
 };

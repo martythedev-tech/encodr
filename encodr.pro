@@ -15,6 +15,7 @@ HEADERS += \
     src/telemetry.h \
     src/cyclecounter.h \
     src/browser.h \
+    src/hardware.h \
     src/theme.h
 
 SOURCES += \
@@ -28,6 +29,7 @@ SOURCES += \
     src/telemetry.cpp \
     src/cyclecounter.cpp \
     src/browser.cpp \
+    src/hardware.cpp \
     src/theme.cpp
 
 RESOURCES += src/resources.qrc

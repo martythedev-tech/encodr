@@ -1,5 +1,7 @@
 #include "backend.h"
 
+#include <QThread>
+
 #include <QClipboard>
 #include <QDBusConnection>
 #include <QDBusInterface>
@@ -203,7 +205,7 @@ void Backend::addJob(const QString &path) {
     job->setPreset(presetById(m_defaultPreset));
     job->setOutputFolder(folderFor(path));
     connect(job, &Job::stateChanged, this, [this, job] {
-        if (job->state() == "ready" && m_running && !hasActiveWork())
+        if (job->state() == "ready" && m_running)
             startNext();
         emit queueChanged();
     });
@@ -228,6 +230,70 @@ bool Backend::hasActiveWork() const {
         if (job->isActive())
             return true;
     return false;
+}
+
+int Backend::runningCount() const {
+    int n = 0;
+    for (Job *job : m_jobs)
+        n += job->isActive();
+    return n;
+}
+
+// x264 stops gaining from threads somewhere past 8 to 16 at review sizes,
+// so a big machine does more by converting several files side by side: one
+// file per eight cores, up to four.
+int Backend::autoParallel() {
+    return std::clamp(QThread::idealThreadCount() / 8, 1, 4);
+}
+
+void Backend::setParallel(int n) {
+    n = std::clamp(n, 0, 8);
+    if (n == m_parallel)
+        return;
+    m_parallel = n;
+    saveConfig();
+    emit settingsChanged();
+    if (m_running)
+        startNext();
+}
+
+void Backend::setHardware(Hardware *hardware) {
+    m_hardware = hardware;
+    if (m_hardware)
+        connect(m_hardware, &Hardware::changed, this, [this] { resolveEngines(); emit settingsChanged(); });
+    resolveEngines();
+}
+
+QObject *Backend::hardwareObject() const {
+    return m_hardware;
+}
+
+void Backend::setGpuEnabled(bool on) {
+    if (on == m_gpuEnabled)
+        return;
+    m_gpuEnabled = on;
+    saveConfig();
+    resolveEngines();
+    emit settingsChanged();
+}
+
+QPair<QString, QString> Backend::engineFor(const Preset &preset) const {
+    if (!m_gpuEnabled || !m_hardware || !preset.usesVideoEncoder() || preset.hardware == "cpu")
+        return {"cpu", {}};
+    const QString wanted = preset.hardware == "auto" ? m_hardware->best(preset.video) : preset.hardware;
+    for (const auto &e : m_hardware->encoders())
+        if (e.id == wanted && e.codecs.contains(preset.video))
+            return {e.id, e.device};
+    return {"cpu", {}};
+}
+
+void Backend::resolveEngines() {
+    for (Job *job : m_jobs) {
+        if (job->isActive())
+            continue;
+        const auto [engine, device] = engineFor(job->presetValue());
+        job->setEngine(engine, device);
+    }
 }
 
 int Backend::waitingCount() const {
@@ -278,7 +344,13 @@ double Backend::queueRemaining() const {
             remaining += job->info().duration / speed;
         }
     }
-    return any ? remaining : -1;
+    if (!any)
+        return -1;
+    // Files side by side finish together, roughly.
+    int lanes = 0;
+    for (Job *job : m_jobs)
+        lanes += job->isActive() || job->isWaiting();
+    return remaining / std::max(1, std::min(lanes, effectiveParallel()));
 }
 
 QDateTime Backend::queueFinishAt() const {
@@ -289,21 +361,29 @@ QDateTime Backend::queueFinishAt() const {
 }
 
 void Backend::toggleQueue() {
+    // Everything converting pauses together, and resumes together.
+    bool anyRunning = false, anyPaused = false;
     for (Job *job : m_jobs) {
-        if (job->state() == "running") {
-            job->pause();
-            // A paused conversion uses no CPU, so let the machine sleep (and
-            // the lid close it) as usual; it carries on after waking.
-            setInhibit(false);
-            emit queueChanged();
-            return;
-        }
-        if (job->state() == "paused") {
-            job->resume();
-            setInhibit(true);
-            emit queueChanged();
-            return;
-        }
+        anyRunning = anyRunning || job->state() == "running";
+        anyPaused = anyPaused || job->state() == "paused";
+    }
+    if (anyRunning) {
+        for (Job *job : m_jobs)
+            if (job->state() == "running")
+                job->pause();
+        // A paused conversion uses no CPU, so let the machine sleep (and
+        // the lid close it) as usual; it carries on after waking.
+        setInhibit(false);
+        emit queueChanged();
+        return;
+    }
+    if (anyPaused) {
+        for (Job *job : m_jobs)
+            if (job->state() == "paused")
+                job->resume();
+        setInhibit(true);
+        emit queueChanged();
+        return;
     }
     startQueue();
 }
@@ -321,22 +401,29 @@ void Backend::startQueue() {
 }
 
 void Backend::startNext() {
-    if (hasActiveWork())
+    // Paused work holds its places; nothing new starts beside it.
+    if (paused())
         return;
-    for (int i = 0; i < m_jobs.size(); ++i) {
+    bool started = false;
+    for (int i = 0; i < m_jobs.size() && runningCount() < effectiveParallel(); ++i) {
         Job *job = m_jobs[i];
         if (!job->isWaiting())
             continue;
         if (!presetProblem(job->presetValue()).isEmpty())
             continue;
+        const auto [engine, device] = engineFor(job->presetValue());
+        job->setEngine(engine, device);
         if (job->start()) {
             Job *selected = jobAt(m_selected);
             if (!selected || selected->isFinished())
                 setSelectedIndex(i);
-            setInhibit(true);
-            emit queueChanged();
-            return;
+            started = true;
         }
+    }
+    if (started || hasActiveWork()) {
+        setInhibit(true);
+        emit queueChanged();
+        return;
     }
     // Something still being read will start once it's ready.
     for (Job *job : m_jobs)
@@ -361,8 +448,6 @@ void Backend::startNext() {
 void Backend::onJobFinished(Job *job, bool ok) {
     if (ok)
         emit outputWritten(job->outputPath());
-    m_watchedPid = 0;
-    m_telemetry->setProcess(0);
     if (ok) {
         const int seconds = int(job->elapsed() + 0.5);
         const QString took = seconds >= 3600 ? QString("%1 h %2 min").arg(seconds / 3600).arg(seconds % 3600 / 60)
@@ -381,15 +466,23 @@ void Backend::onJobFinished(Job *job, bool ok) {
 }
 
 void Backend::onTick() {
+    resolveEngines();
+    QList<qint64> pids;
+    for (Job *job : m_jobs)
+        if (job->isActive() && job->processId() > 0)
+            pids << job->processId();
+    if (pids != m_watchedPids) {
+        m_watchedPids = pids;
+        m_telemetry->setProcesses(pids);
+    }
+    // Side by side, each job is charged its share of the machine's power.
+    const double total = m_telemetry->processCpu();
     for (Job *job : m_jobs) {
         if (!job->isActive())
             continue;
-        const qint64 pid = job->processId();
-        if (pid != m_watchedPid) {
-            m_watchedPid = pid;
-            m_telemetry->setProcess(pid);
-        }
-        job->recordSystem(m_telemetry->processCpu(), m_telemetry->systemWatts(), m_telemetry->clockShare(), m_telemetry->throttled());
+        const double cpu = m_telemetry->processCpuFor(job->processId());
+        const double share = total > 0 ? cpu / total : 1.0 / std::max<qsizetype>(1, pids.size());
+        job->recordSystem(cpu, m_telemetry->systemWatts() * share, m_telemetry->clockShare(), m_telemetry->throttled());
     }
     if (hasActiveWork())
         emit queueChanged();
@@ -451,7 +544,7 @@ void Backend::retryJob(int index) {
         return;
     job->reset();
     job->setOutputFolder(folderFor(job->inputPath()));
-    if (m_running && !hasActiveWork())
+    if (m_running)
         startNext();
 }
 
@@ -633,6 +726,8 @@ void Backend::loadConfig() {
     m_defaultPreset = settings.value("defaultPreset").toString(m_defaultPreset);
     m_outputMode = settings.value("outputMode").toString(m_outputMode);
     m_outputFolder = settings.value("outputFolder").toString();
+    m_gpuEnabled = settings.value("gpuEncoding").toBool(false);
+    m_parallel = settings.value("parallel").toInt(0);
 
     m_userPresets.clear();
     const QJsonObject presets = readJson(m_configDir + "/presets.json");
@@ -646,7 +741,8 @@ void Backend::loadConfig() {
 
 void Backend::saveConfig() const {
     writeJson(m_configDir + "/settings.json", QJsonObject{
-        {"defaultPreset", m_defaultPreset}, {"outputMode", m_outputMode}, {"outputFolder", m_outputFolder}});
+        {"defaultPreset", m_defaultPreset}, {"outputMode", m_outputMode}, {"outputFolder", m_outputFolder},
+        {"gpuEncoding", m_gpuEnabled}, {"parallel", m_parallel}});
 }
 
 void Backend::savePresets() const {

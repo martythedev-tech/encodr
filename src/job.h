@@ -31,6 +31,7 @@ class Job : public QObject {
     Q_PROPERTY(QString outputFolder READ outputFolder WRITE setOutputFolder NOTIFY presetChanged)
     Q_PROPERTY(QString outputPath READ outputPath NOTIFY presetChanged)
     Q_PROPERTY(QString commandLine READ commandLine NOTIFY presetChanged)
+    Q_PROPERTY(QString engine READ engine NOTIFY presetChanged)
     Q_PROPERTY(QStringList notes READ notes NOTIFY presetChanged)
 
     Q_PROPERTY(double percent READ percent NOTIFY statsChanged)
@@ -55,6 +56,7 @@ class Job : public QObject {
     Q_PROPERTY(qint64 duplicatedFrames READ duplicatedFrames NOTIFY statsChanged)
     Q_PROPERTY(double energyWh READ energyWh NOTIFY statsChanged)
     Q_PROPERTY(double peakCpu READ peakCpu NOTIFY statsChanged)
+    Q_PROPERTY(double cpu READ cpu NOTIFY statsChanged)
     Q_PROPERTY(double clockShare READ clockShare NOTIFY statsChanged)
     Q_PROPERTY(double lowestClockShare READ lowestClockShare NOTIFY statsChanged)
     Q_PROPERTY(int heatSeconds READ heatSeconds NOTIFY statsChanged)
@@ -110,6 +112,7 @@ public:
     qint64 duplicatedFrames() const { return m_last.dupFrames; }
     double energyWh() const { return m_energyWh; }
     double peakCpu() const { return m_peakCpu; }
+    double cpu() const { return m_state == "running" ? m_pendingCpu : 0; }   // this job's share of the machine now
     double clockShare() const { return m_clockShare; }
     double lowestClockShare() const { return m_lowestClockShare; }
     int heatSeconds() const { return m_heatSeconds; }
@@ -126,6 +129,12 @@ public:
     bool isFinished() const { return m_state == "done" || m_state == "failed" || m_state == "cancelled"; }
 
     void setPreset(const Preset &preset);
+    // Which encoder runs this job's H.264/HEVC ("cpu", "nvenc", "qsv",
+    // "vaapi"), chosen by the backend from what the machine has.
+    void setEngine(const QString &engine, const QString &device = {});
+    QString engine() const { return m_engine; }
+    // The preset as it will actually run, with the encoder filled in.
+    Preset runPreset() const;
     void probe();
     bool start();
     void pause();
@@ -151,6 +160,7 @@ signals:
     void previewChanged();
 
 private:
+    bool launch();    // starts ffmpeg; start() checks first
     void setState(const QString &state, const QString &message = {});
     void scanLevels(int track);
     void makePoster();
@@ -171,6 +181,9 @@ private:
     QString m_outputFolder;
     QString m_finalPath;      // fixed when the run starts
     QStringList m_runNotes;
+    QString m_engine = "cpu";
+    QString m_engineDevice;
+    QString m_fallbackNote;     // why a GPU run was redone on the CPU
 
     QPointer<QProcess> m_process;
     QPointer<QProcess> m_helper;

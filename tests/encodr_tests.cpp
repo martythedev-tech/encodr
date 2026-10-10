@@ -13,6 +13,7 @@
 #include "telemetry.h"
 #include "cyclecounter.h"
 #include "browser.h"
+#include "hardware.h"
 
 #include <atomic>
 #include <thread>
@@ -325,6 +326,189 @@ private slots:
         // The drive isn't really mounted here, so it's left out rather than shown broken.
         for (const auto &p : places)
             QVERIFY(p.toMap().value("path").toString() != "/run/media/nobody/My Drive");
+    }
+
+    void gpuCommandsForEachFamily() {
+        const MediaInfo info = parseProbe(kKiPro, "/x/in.mov");
+        Preset p = builtinPresets().first();    // review copy, H.264
+
+        p.hardware = "nvenc";
+        QString joined = buildCommand(p, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains("-c:v h264_nvenc -preset p4 -tune hq -rc vbr -cq 19 -b:v 0 -profile:v high"), qPrintable(joined));
+        QVERIFY(joined.contains("-maxrate 16000k"));
+        QVERIFY(joined.contains("format=yuv420p[v]"));
+        QVERIFY(!joined.contains("libx264"));
+
+        p.hardware = "qsv";
+        joined = buildCommand(p, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains("-c:v h264_qsv -preset fast -global_quality 18"), qPrintable(joined));
+        QVERIFY(joined.contains("format=nv12[v]"));
+
+        // VA-API: the device comes first, and only the encoder's branch is
+        // uploaded to the GPU; the preview frames stay ordinary pictures.
+        p.hardware = "vaapi";
+        p.hardwareDevice = "/dev/dri/renderD129";
+        const Command cmd = buildCommand(p, info, "/x/in.mov", "/y/out.mp4", -1, -1, "/c/out.jpg", "/c/src.jpg");
+        joined = cmd.arguments.join(' ');
+        QVERIFY2(joined.indexOf("-vaapi_device /dev/dri/renderD129") < joined.indexOf("-i /x/in.mov"), qPrintable(joined));
+        QVERIFY(joined.contains("format=nv12,split=2[vsw][pv];[vsw]hwupload[v]"));
+        QVERIFY(joined.contains("-c:v h264_vaapi -rc_mode CQP -qp 18"));
+        QVERIFY(!joined.contains("-maxrate"));    // no rate cap in constant-QP mode
+        QVERIFY(cmd.notes.contains("Encoded on the GPU (VA-API)"));
+
+        // HEVC keeps 10-bit and the Apple-friendly tag on the GPU too.
+        Preset h = builtinPresets()[3];
+        QCOMPARE(h.video, QString("hevc"));
+        h.hardware = "nvenc";
+        joined = buildCommand(h, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains("format=p010le[v]") && joined.contains("-c:v hevc_nvenc") && joined.contains("-profile:v main10")
+                 && joined.contains("-tag:v hvc1"), qPrintable(joined));
+
+        // ProRes never goes to the GPU, whatever the setting.
+        Preset prores = builtinPresets()[4];
+        prores.hardware = "nvenc";
+        QVERIFY(buildCommand(prores, info, "/x/in.mov", "/y/out.mov").arguments.contains("prores_ks"));
+    }
+
+    void gpuDetectionParsesFfmpeg() {
+        const QByteArray listing =
+            "Encoders:\n V..... = Video\n ------\n"
+            " V....D libx264              libx264 H.264 / AVC\n"
+            " V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)\n"
+            " V....D hevc_vaapi           H.265/HEVC (VAAPI) (codec hevc)\n"
+            " A....D aac                  AAC (Advanced Audio Coding)\n";
+        const QStringList names = Hardware::parseEncoderList(listing);
+        QVERIFY(names.contains("h264_nvenc"));
+        QVERIFY(names.contains("hevc_vaapi"));
+        QVERIFY(!names.contains("aac"));
+        QVERIFY(!names.contains("="));
+
+        const QString vaapi = Hardware::testArguments("vaapi", "hevc", "/dev/dri/renderD128").join(' ');
+        QVERIFY(vaapi.contains("-vaapi_device /dev/dri/renderD128"));
+        QVERIFY(vaapi.contains("-vf format=nv12,hwupload -c:v hevc_vaapi -f null -"));
+    }
+
+    void gpuEncodingIsOffUntilSwitchedOn() {
+        QTemporaryDir config;
+        Backend backend(nullptr, config.path());
+        Hardware hardware;
+        hardware.setEncoders({{"nvenc", "NVIDIA NVENC", {}, {"h264"}}, {"vaapi", "AMD VA-API", "/dev/dri/renderD128", {"h264", "hevc"}}});
+        backend.setHardware(&hardware);
+        Preset p = builtinPresets().first();
+
+        QCOMPARE(backend.engineFor(p).first, QString("cpu"));    // experimental: off by default
+        backend.setGpuEnabled(true);
+        QCOMPARE(backend.engineFor(p).first, QString("nvenc"));  // automatic picks the fastest
+        p.video = "hevc";
+        QCOMPARE(backend.engineFor(p), qMakePair(QString("vaapi"), QString("/dev/dri/renderD128")));
+        p.hardware = "nvenc";                                    // asked for, but it can't do HEVC
+        QCOMPARE(backend.engineFor(p).first, QString("cpu"));
+        p.hardware = "cpu";
+        QCOMPARE(backend.engineFor(p).first, QString("cpu"));
+        QVERIFY(Backend::autoParallel() >= 1 && Backend::autoParallel() <= 4);
+    }
+
+    // A GPU that refuses the job: the file is redone on the CPU, and says so.
+    void failedGpuRunFallsBackToCpu() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        const QString source = dir.filePath("clip.mov");
+        QProcess make;
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=2",
+                              "-c:v", "mpeg4", source});
+        QVERIFY(make.waitForFinished(30000) && make.exitCode() == 0);
+
+        Job job(1, source);
+        Preset p = builtinPresets().first();
+        p.speed = "ultrafast";
+        job.setPreset(p);
+        job.setOutputFolder(dir.filePath("out"));
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        job.setEngine("vaapi", dir.filePath("no-such-gpu"));
+        QVERIFY(job.commandLine().contains("h264_vaapi"));
+
+        QSignalSpy finished(&job, &Job::finished);
+        QVERIFY(job.start());
+        QVERIFY(finished.wait(60000));
+        QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+        QCOMPARE(job.engine(), QString("cpu"));
+        QVERIFY(job.notes().first().startsWith("The GPU encoder failed"));
+        QVERIFY(QFileInfo::exists(dir.filePath("out/clip_review.mp4")));
+    }
+
+    void severalFilesConvertAtOnce() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir, config;
+        QStringList files;
+        for (int i = 1; i <= 3; ++i) {
+            const QString path = dir.filePath(QString("clip%1.mov").arg(i));
+            QProcess make;
+            make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i",
+                                  "testsrc2=size=640x360:rate=25:duration=6", "-c:v", "mpeg4", path});
+            QVERIFY(make.waitForFinished(30000) && make.exitCode() == 0);
+            files << path;
+        }
+        Backend backend(nullptr, config.path());
+        backend.setParallel(2);
+        backend.addPaths(files);
+        auto allReady = [&] {
+            for (int i = 0; i < 3; ++i)
+                if (backend.jobAt(i)->state() != "ready")
+                    return false;
+            return true;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(allReady(), 20000);
+        backend.startQueue();
+        QCOMPARE(backend.runningCount(), 2);    // two side by side, the third waits
+        QCOMPARE(backend.jobAt(2)->state(), QString("ready"));
+
+        backend.toggleQueue();                  // pause pauses both
+        QCOMPARE(backend.jobAt(0)->state(), QString("paused"));
+        QCOMPARE(backend.jobAt(1)->state(), QString("paused"));
+        backend.toggleQueue();
+        QCOMPARE(backend.jobAt(0)->state(), QString("running"));
+
+        QTRY_COMPARE_WITH_TIMEOUT(backend.doneCount(), 3, 120000);
+    }
+
+    void gpuStatsFromDriversAndNvidiaSmi() {
+        const QVariantList nv = Telemetry::parseNvidiaSmi("NVIDIA GeForce RTX 4070, 37, 82, 2475, 3105, 61, 115.42\n", true);
+        QCOMPARE(nv.size(), 1);
+        const QVariantMap g = nv.first().toMap();
+        QCOMPARE(g["name"].toString(), QString("NVIDIA GeForce RTX 4070"));
+        QCOMPARE(g["encoder"].toDouble(), 82.0);
+        QCOMPARE(g["maxMhz"].toDouble(), 3105.0);
+        QCOMPARE(Telemetry::parseNvidiaSmi("Tesla T4, 5, [N/A], 585, 1590, 40, [N/A]\n", true).first().toMap()["watts"].toDouble(), -1.0);
+
+        QTemporaryDir sys, proc;
+        writeFile(proc.filePath("stat"), "cpu  100 0 100 800 0 0 0 0 0 0\ncpu0 100 0 100 800 0 0 0 0 0 0\n");
+        writeFile(sys.filePath("class/drm/card0/device/uevent"), "DRIVER=amdgpu\nPCI_ID=1002:744C\n");
+        writeFile(sys.filePath("class/drm/card0/device/gpu_busy_percent"), "64\n");
+        writeFile(sys.filePath("class/drm/card0/device/pp_dpm_sclk"), "0: 500Mhz\n1: 1854Mhz *\n2: 2500Mhz\n");
+        writeFile(sys.filePath("class/drm/card0/device/hwmon/hwmon4/temp1_input"), "58000\n");
+        writeFile(sys.filePath("class/drm/card0/device/hwmon/hwmon4/power1_average"), "142000000\n");
+        writeFile(sys.filePath("class/drm/card1/device/uevent"), "DRIVER=i915\n");
+        writeFile(sys.filePath("class/drm/card1/gt_act_freq_mhz"), "1150\n");
+        writeFile(sys.filePath("class/drm/card1/gt_max_freq_mhz"), "1300\n");
+        writeFile(sys.filePath("class/drm/card1-DP-1/status"), "connected\n");    // a connector, not a card
+        writeFile(sys.filePath("class/drm/card2/device/uevent"), "DRIVER=asahi\n");  // nothing to report
+
+        Telemetry t(sys.path(), proc.path());
+        const QVariantList gpus = t.gpus();
+        QCOMPARE(gpus.size(), 2);
+        const QVariantMap amd = gpus[0].toMap(), intel = gpus[1].toMap();
+        QCOMPARE(amd["name"].toString(), QString("AMD GPU"));
+        QCOMPARE(amd["busy"].toDouble(), 64.0);
+        QCOMPARE(amd["mhz"].toDouble(), 1854.0);
+        QCOMPARE(amd["maxMhz"].toDouble(), 2500.0);
+        QCOMPARE(amd["celsius"].toDouble(), 58.0);
+        QCOMPARE(amd["watts"].toDouble(), 142.0);
+        QCOMPARE(intel["name"].toString(), QString("Intel GPU"));
+        QCOMPARE(intel["mhz"].toDouble(), 1150.0);
+        QCOMPARE(intel["busy"].toDouble(), -1.0);
     }
 
     void themeFallsBack() {

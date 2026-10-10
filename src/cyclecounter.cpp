@@ -76,20 +76,22 @@ void CycleCounter::closeAll() {
     m_threads.clear();
 }
 
-void CycleCounter::setProcess(qint64 pid) {
+void CycleCounter::setProcesses(const QList<qint64> &pids) {
     closeAll();
-    m_pid = pid;
+    m_pids = pids;
 }
 
 QVector<CycleCounter::Cluster> CycleCounter::sample() {
     QVector<Cluster> clusters(m_pmus.size());
     for (int i = 0; i < m_pmus.size(); ++i)
         clusters[i].cpus = m_pmus[i].cpus;
-    if (m_pid <= 0 || m_pmus.isEmpty())
+    if (m_pids.isEmpty() || m_pmus.isEmpty())
         return clusters;
 
     // ffmpeg starts and ends worker threads as it goes, so follow them.
-    const QStringList tids = QDir(QString("%1/%2/task").arg(m_proc).arg(m_pid)).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    QStringList tids;
+    for (const qint64 pid : std::as_const(m_pids))
+        tids << QDir(QString("%1/%2/task").arg(m_proc).arg(pid)).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     QSet<int> alive;
     for (const QString &t : tids) {
         const int tid = t.toInt();

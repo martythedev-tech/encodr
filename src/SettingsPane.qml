@@ -14,6 +14,14 @@ ScrollView {
     clip: true
     contentWidth: availableWidth
 
+    function engineName(id) {
+        var found = backend.hardware ? backend.hardware.encoders : [];
+        for (var i = 0; i < found.length; i++)
+            if (found[i].id === id)
+                return found[i].name + " (GPU)";
+        return id;
+    }
+
     function edit(key, value) {
         backend.editJobPreset(jobIndex, key, value);
     }
@@ -183,6 +191,31 @@ ScrollView {
                         { value: "veryslow", text: "Very slow — smallest" }] }
                 }
                 Field {
+                    label: "Runs on"
+                    visible: (p.video === "h264" || p.video === "hevc") && backend.gpuEnabled
+                    ColumnLayout {
+                        width: Math.min(340, parent.width)
+                        spacing: 4
+                        Choice {
+                            key: "hardware"
+                            Layout.fillWidth: true
+                            options: {
+                                var list = [{ value: "auto", text: "Automatic — fastest available" }, { value: "cpu", text: "CPU (x264 / x265)" }];
+                                var found = backend.hardware ? backend.hardware.encoders : [];
+                                for (var i = 0; i < found.length; i++)
+                                    if (found[i].codecs.indexOf(root.p.video) >= 0)
+                                        list.push({ value: found[i].id, text: found[i].name + " (GPU)" });
+                                return list;
+                            }
+                        }
+                        Text {
+                            text: job ? "This file: " + (job.engine === "cpu" ? "CPU" : root.engineName(job.engine)) : ""
+                            color: theme.dim
+                            font.pixelSize: 11
+                        }
+                    }
+                }
+                Field {
                     label: "Picture size"
                     visible: p.video !== "none"
                     Choice { key: "maxHeight"; options: [
@@ -289,6 +322,66 @@ ScrollView {
                     RowLayout {
                         UiButton { text: "Choose folder…"; onClicked: backend.chooseOutputFolder() }
                         UiButton { text: "Next to the originals"; kind: "ghost"; visible: backend.outputMode === "folder"; onClicked: backend.useSourceFolders() }
+                    }
+                }
+
+                // Settings for this machine, not for the file: they apply to every job.
+                Section {
+                    title: "This computer"
+                    Field {
+                        label: "Files at once"
+                        ComboBox {
+                            width: Math.min(340, parent.width)
+                            implicitHeight: 32
+                            topInset: 0
+                            bottomInset: 0
+                            font.pixelSize: 12
+                            textRole: "text"
+                            valueRole: "value"
+                            model: [
+                                { value: 0, text: "Automatic (" + backend.autoParallel + " on this computer)" },
+                                { value: 1, text: "1 — one after another" }, { value: 2, text: "2" },
+                                { value: 3, text: "3" }, { value: 4, text: "4" }]
+                            currentIndex: indexOfValue(backend.parallel)
+                            onActivated: backend.parallel = currentValue
+                        }
+                    }
+                    Field {
+                        label: "GPU encoding"
+                        ColumnLayout {
+                            width: parent.width
+                            spacing: 2
+                            RowLayout {
+                                Switch {
+                                    checked: backend.gpuEnabled
+                                    onToggled: backend.gpuEnabled = checked
+                                }
+                                Text {
+                                    text: "Experimental"
+                                    color: theme.warn
+                                    font.pixelSize: 11
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                color: theme.dim
+                                font.pixelSize: 11
+                                text: {
+                                    var hw = backend.hardware;
+                                    if (!hw || !hw.ready)
+                                        return "Looking for GPU encoders…";
+                                    if (hw.encoders.length === 0)
+                                        return "No GPU encoder works on this computer, so everything runs on the CPU.";
+                                    var names = [];
+                                    for (var i = 0; i < hw.encoders.length; i++)
+                                        names.push(hw.encoders[i].name + " (" + hw.encoders[i].codecs.join(", ").toUpperCase() + ")");
+                                    return "Found " + names.join(", ") + ". Much faster, slightly larger files; "
+                                           + "if the GPU refuses a file, Encodr redoes it on the CPU.";
+                                }
+                            }
+                        }
                     }
                 }
 

@@ -16,6 +16,7 @@
 
 #include "backend.h"
 #include "browser.h"
+#include "hardware.h"
 #include "portalfilepicker.h"
 #include "theme.h"
 
@@ -54,6 +55,10 @@ int main(int argc, char *argv[]) {
     Theme theme;
     PortalFilePicker picker;
     Backend backend(&picker);
+    // Which GPU encoders really work here; a few test frames, in the background.
+    Hardware hardware;
+    backend.setHardware(&hardware);
+    hardware.detect();
 
     // The browser marks files that already have an output: anything named
     // with a preset's suffix, beside the original or in Encodr's folders.

@@ -79,7 +79,7 @@ Rectangle {
 
         GridLayout {
             Layout.fillWidth: true
-            columns: root.width > 560 ? 3 : 1
+            columns: root.width > 560 ? (tel.gpus.length > 0 ? 4 : 3) : 1
             columnSpacing: 24
             rowSpacing: 4
 
@@ -96,6 +96,33 @@ Rectangle {
                         color: modelData.low ? theme.warn : theme.foreground
                         font.pixelSize: 12
                         font.family: theme.mono
+                    }
+                }
+            }
+            ColumnLayout {
+                Layout.alignment: Qt.AlignTop
+                visible: tel.gpus.length > 0
+                spacing: 3
+                Text { text: "GPU"; color: theme.dim; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.7; font.capitalization: Font.AllUppercase; Layout.bottomMargin: 2 }
+                Repeater {
+                    model: tel.gpus
+                    ColumnLayout {
+                        required property var modelData
+                        spacing: 1
+                        Text { text: modelData.name; color: theme.foreground; font.pixelSize: 12 }
+                        Text {
+                            color: theme.dim
+                            font.pixelSize: 11
+                            text: {
+                                var g = modelData, parts = [];
+                                if (g.busy >= 0) parts.push(Format.number(g.busy, 0) + "% busy");
+                                if (g.encoder >= 0) parts.push("encoder " + Format.number(g.encoder, 0) + "%");
+                                if (g.mhz > 0) parts.push(Format.number(g.mhz / 1000, 2) + (g.maxMhz > 0 ? " / " + Format.number(g.maxMhz / 1000, 2) : "") + " GHz");
+                                if (g.celsius > 0) parts.push(Format.number(g.celsius, 0) + " °C");
+                                if (g.watts > 0) parts.push(Format.number(g.watts, 0) + " W");
+                                return parts.join(" · ");
+                            }
+                        }
                     }
                 }
             }

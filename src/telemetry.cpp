@@ -4,6 +4,8 @@
 #include <QDir>
 #include <QFile>
 #include <QRegularExpression>
+#include <QProcess>
+#include <QStandardPaths>
 #include <QThread>
 #include <unistd.h>
 
@@ -23,18 +25,23 @@ Telemetry::Telemetry(const QString &sysRoot, const QString &procRoot, QObject *p
     const long ticks = sysconf(_SC_CLK_TCK);
     if (ticks > 0)
         m_ticksPerSecond = ticks;
+    // NVIDIA's driver keeps its numbers to itself; nvidia-smi reads them.
+    m_nvidiaSmi = sysRoot.isEmpty() ? QStandardPaths::findExecutable("nvidia-smi") : QString();
     m_timer.setInterval(1000);
     connect(&m_timer, &QTimer::timeout, this, &Telemetry::sample);
     m_timer.start();
     sample();
 }
 
-void Telemetry::setProcess(qint64 pid) {
-    m_pid = pid;
-    m_cycles.setProcess(pid);
-    m_prevProcTicks = 0;
+void Telemetry::setProcesses(const QList<qint64> &pids) {
+    if (pids == m_pids)
+        return;
+    m_pids = pids;
+    m_cycles.setProcesses(pids);
+    m_prevProcTicks.clear();
     m_prevProcAt = 0;
     m_processCpu = 0;
+    m_processCpuByPid.clear();
 }
 
 void Telemetry::sample() {
@@ -42,6 +49,7 @@ void Telemetry::sample() {
     sampleProcess();
     sampleClocks();
     sampleSensors();
+    sampleGpus();
     emit updated();
 }
 
@@ -79,28 +87,34 @@ void Telemetry::sampleCpu() {
 }
 
 void Telemetry::sampleProcess() {
-    if (m_pid <= 0) {
+    if (m_pids.isEmpty()) {
         m_processCpu = 0;
+        m_processCpuByPid.clear();
         return;
     }
-    const QByteArray stat = readFile(QString("%1/%2/stat").arg(m_proc).arg(m_pid));
-    // The command name may contain spaces; the fields we want follow its ')'.
-    const qsizetype close = stat.lastIndexOf(')');
-    if (close < 0) {
-        m_processCpu = 0;
-        return;
-    }
-    const auto fields = stat.mid(close + 2).split(' ');
-    if (fields.size() < 13)
-        return;
-    const quint64 ticks = fields[11].toULongLong() + fields[12].toULongLong();   // utime + stime
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    if (m_prevProcAt > 0 && now > m_prevProcAt) {
-        const double seconds = (now - m_prevProcAt) / 1000.0;
-        // As a share of the whole machine, so 100% means every core is busy.
-        m_processCpu = 100.0 * double(ticks - m_prevProcTicks) / m_ticksPerSecond / seconds / std::max(1, m_coreCount);
+    const double seconds = m_prevProcAt > 0 && now > m_prevProcAt ? (now - m_prevProcAt) / 1000.0 : 0;
+    double total = 0;
+    for (const qint64 pid : std::as_const(m_pids)) {
+        const QByteArray stat = readFile(QString("%1/%2/stat").arg(m_proc).arg(pid));
+        // The command name may contain spaces; the fields we want follow its ')'.
+        const qsizetype close = stat.lastIndexOf(')');
+        if (close < 0)
+            continue;
+        const auto fields = stat.mid(close + 2).split(' ');
+        if (fields.size() < 13)
+            continue;
+        const quint64 ticks = fields[11].toULongLong() + fields[12].toULongLong();   // utime + stime
+        if (seconds > 0 && m_prevProcTicks.contains(pid)) {
+            // As a share of the whole machine, so 100% means every core is busy.
+            const double share = 100.0 * double(ticks - m_prevProcTicks.value(pid)) / m_ticksPerSecond / seconds
+                                 / std::max(1, m_coreCount);
+            m_processCpuByPid.insert(pid, share);
+            total += share;
+        }
+        m_prevProcTicks.insert(pid, ticks);
     }
-    m_prevProcTicks = ticks;
+    m_processCpu = total;
     m_prevProcAt = now;
 }
 
@@ -189,4 +203,127 @@ void Telemetry::sampleSensors() {
             }
         }
     }
+}
+
+namespace {
+double numberOr(const QByteArray &raw, double fallback = -1) {
+    bool ok = false;
+    const double v = raw.trimmed().toDouble(&ok);
+    return ok ? v : fallback;
+}
+}
+
+QVariantList Telemetry::parseNvidiaSmi(const QByteArray &output, bool withEncoder) {
+    QVariantList gpus;
+    for (const QByteArray &line : output.split('\n')) {
+        const QList<QByteArray> f = line.split(',');
+        const int need = withEncoder ? 7 : 6;
+        if (f.size() < need)
+            continue;
+        int i = 0;
+        QVariantMap g;
+        g["name"] = QString::fromUtf8(f[i++].trimmed());
+        g["busy"] = numberOr(f[i++]);
+        g["encoder"] = withEncoder ? numberOr(f[i++]) : -1.0;
+        g["mhz"] = numberOr(f[i++]);
+        g["maxMhz"] = numberOr(f[i++]);
+        g["celsius"] = numberOr(f[i++]);
+        g["watts"] = numberOr(f[i++]);
+        gpus << g;
+    }
+    return gpus;
+}
+
+void Telemetry::queryNvidia() {
+    if (m_nvidiaSmi.isEmpty() || m_nvidiaBusy)
+        return;
+    m_nvidiaBusy = true;
+    const bool withEncoder = m_nvidiaEncoderField;
+    const QString fields = QString("name,utilization.gpu,%1clocks.gr,clocks.max.gr,temperature.gpu,power.draw")
+                               .arg(withEncoder ? "utilization.encoder," : "");
+    auto *smi = new QProcess(this);
+    connect(smi, &QProcess::finished, this, [this, smi, withEncoder](int code, QProcess::ExitStatus) {
+        smi->deleteLater();
+        m_nvidiaBusy = false;
+        if (code != 0 && withEncoder) {
+            m_nvidiaEncoderField = false;    // ask again without it next time
+            return;
+        }
+        m_nvidiaGpus = code == 0 ? parseNvidiaSmi(smi->readAllStandardOutput(), withEncoder) : QVariantList();
+    });
+    connect(smi, &QProcess::errorOccurred, this, [this, smi](QProcess::ProcessError e) {
+        if (e == QProcess::FailedToStart) {
+            smi->deleteLater();
+            m_nvidiaBusy = false;
+            m_nvidiaSmi.clear();
+        }
+    });
+    smi->start(m_nvidiaSmi, {"--query-gpu=" + fields, "--format=csv,noheader,nounits"});
+}
+
+// AMD and Intel publish their load and clocks in sysfs; Apple's GPU under
+// Asahi and NVIDIA's (through DRM) don't, so those are skipped here.
+void Telemetry::sampleGpus() {
+    if (++m_ticks % 2 == 1)
+        queryNvidia();
+
+    m_drmGpus.clear();
+    QDir drm(m_sys + "/class/drm");
+    static const QRegularExpression card("^card\\d+$");
+    for (const QString &name : drm.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
+        if (!card.match(name).hasMatch())
+            continue;
+        const QString base = drm.filePath(name);
+        const QString device = base + "/device";
+        QString driver;
+        for (const QByteArray &line : readFile(device + "/uevent").split('\n'))
+            if (line.startsWith("DRIVER="))
+                driver = QString::fromUtf8(line.mid(7));
+        double busy = -1, mhz = -1, maxMhz = -1, celsius = -1, watts = -1;
+        QString label;
+        if (driver == "amdgpu") {
+            label = "AMD GPU";
+            busy = numberOr(readFile(device + "/gpu_busy_percent"));
+            // "0: 500Mhz", "1: 2250Mhz *": the starred level is the current one.
+            for (const QByteArray &line : readFile(device + "/pp_dpm_sclk").split('\n')) {
+                const QByteArray level = line.mid(line.indexOf(':') + 1).trimmed();
+                const double value = numberOr(level.left(level.indexOf("Mhz")));
+                if (value <= 0)
+                    continue;
+                maxMhz = std::max(maxMhz, value);
+                if (line.trimmed().endsWith('*'))
+                    mhz = value;
+            }
+        } else if (driver == "i915") {
+            label = "Intel GPU";
+            mhz = numberOr(readFile(base + "/gt_act_freq_mhz"));
+            if (mhz < 0)
+                mhz = numberOr(readFile(base + "/gt_cur_freq_mhz"));
+            maxMhz = numberOr(readFile(base + "/gt_max_freq_mhz"));
+        } else if (driver == "xe") {
+            label = "Intel GPU";
+            mhz = numberOr(readFile(device + "/tile0/gt0/freq0/act_freq"));
+            maxMhz = numberOr(readFile(device + "/tile0/gt0/freq0/max_freq"));
+        } else {
+            continue;
+        }
+        // The card's own temperature and power, from its hwmon directory.
+        const QStringList mons = QDir(device + "/hwmon").entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        if (!mons.isEmpty()) {
+            const QString mon = device + "/hwmon/" + mons.first();
+            const double t = numberOr(readFile(mon + "/temp1_input"));
+            if (t > 0)
+                celsius = t / 1000.0;
+            double p = numberOr(readFile(mon + "/power1_average"));
+            if (p < 0)
+                p = numberOr(readFile(mon + "/power1_input"));
+            if (p > 0)
+                watts = p / 1e6;
+        }
+        if (busy < 0 && mhz < 0)
+            continue;
+        m_drmGpus << QVariantMap{{"name", label}, {"busy", busy}, {"encoder", -1.0}, {"mhz", mhz},
+                                 {"maxMhz", maxMhz}, {"celsius", celsius}, {"watts", watts}};
+    }
+    m_gpus = m_nvidiaGpus + m_drmGpus;
 }

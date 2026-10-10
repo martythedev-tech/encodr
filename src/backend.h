@@ -9,6 +9,7 @@
 
 #include "job.h"
 #include "preset.h"
+#include "hardware.h"
 #include "telemetry.h"
 
 class FilePicker;
@@ -35,6 +36,11 @@ class Backend : public QObject {
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY jobsChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY jobsChanged)
     Q_PROPERTY(QString notice READ notice NOTIFY noticeChanged)
+    Q_PROPERTY(QObject *hardware READ hardwareObject CONSTANT)
+    Q_PROPERTY(bool gpuEnabled READ gpuEnabled WRITE setGpuEnabled NOTIFY settingsChanged)
+    Q_PROPERTY(int parallel READ parallel WRITE setParallel NOTIFY settingsChanged)
+    Q_PROPERTY(int autoParallel READ autoParallel CONSTANT)
+    Q_PROPERTY(int runningCount READ runningCount NOTIFY queueChanged)
 
 public:
     explicit Backend(FilePicker *picker, const QString &configDir = {}, Telemetry *telemetry = nullptr,
@@ -54,7 +60,22 @@ public:
     bool paused() const;
     bool inhibiting() const { return m_inhibit.isValid(); }
     bool hasActiveWork() const;
+    int runningCount() const;
     int waitingCount() const;
+
+    // GPU encoding is experimental and off until switched on. `hardware` is
+    // what the machine was found to have.
+    void setHardware(Hardware *hardware);
+    QObject *hardwareObject() const;
+    bool gpuEnabled() const { return m_gpuEnabled; }
+    void setGpuEnabled(bool on);
+    // How many files convert at once: 0 means automatic, sized to the machine.
+    int parallel() const { return m_parallel; }
+    void setParallel(int n);
+    static int autoParallel();
+    int effectiveParallel() const { return m_parallel > 0 ? m_parallel : autoParallel(); }
+    // The encoder a job would run on now, and its VA-API device.
+    QPair<QString, QString> engineFor(const Preset &preset) const;
     int doneCount() const;
     double queuePercent() const;
     double queueRemaining() const;
@@ -108,6 +129,7 @@ private:
     void startNext();
     void onJobFinished(Job *job, bool ok);
     void onTick();
+    void resolveEngines();
     void setNotice(const QString &text);
     void setInhibit(bool on);
     void notify(const QString &title, const QString &body);
@@ -130,7 +152,10 @@ private:
     bool m_running = false;
     QDBusUnixFileDescriptor m_inhibit;
     QString m_notice;
-    qint64 m_watchedPid = 0;
+    QList<qint64> m_watchedPids;
+    Hardware *m_hardware = nullptr;
+    bool m_gpuEnabled = false;
+    int m_parallel = 0;
 
     // Removed jobs with the position they came from, for undo.
     struct Removed { Job *job; int index; };
