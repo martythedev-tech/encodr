@@ -140,7 +140,9 @@ ScrollView {
                         { value: "h264", text: "H.264 — plays everywhere" }, { value: "hevc", text: "HEVC (H.265) — half the size" },
                         { value: "vp9", text: "VP9 — for the web" }, { value: "prores_proxy", text: "ProRes Proxy" },
                         { value: "prores_lt", text: "ProRes LT" }, { value: "prores_422", text: "ProRes 422" },
-                        { value: "prores_hq", text: "ProRes 422 HQ" }, { value: "none", text: "No video (audio only)" }] }
+                        { value: "prores_hq", text: "ProRes 422 HQ" }, { value: "dnxhr_lb", text: "DNxHR LB — light proxy" },
+                        { value: "dnxhr_sq", text: "DNxHR SQ" }, { value: "dnxhr_hq", text: "DNxHR HQ" },
+                        { value: "dnxhr_hqx", text: "DNxHR HQX — 10-bit" }, { value: "none", text: "No video (audio only)" }] }
                 }
                 Field {
                     label: "Quality"

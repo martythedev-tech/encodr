@@ -163,6 +163,28 @@ private slots:
         QVERIFY(cmd.notes.contains("Only audio track 1 of 3 converted: a WAV file holds one track"));
     }
 
+    void dnxhrPresets() {
+        const MediaInfo info = parseProbe(kKiPro, "/x/in.mov");
+        Preset lb, hq;
+        for (const Preset &p : builtinPresets()) {
+            if (p.id == "dnxhr-lb")
+                lb = p;
+            if (p.id == "dnxhr-hq")
+                hq = p;
+        }
+        QCOMPARE(lb.container, QString("mov"));
+        const QString joined = buildCommand(lb, info, "/x/in.mov", "/y/out.mov").arguments.join(' ');
+        QVERIFY2(joined.contains("format=yuv422p[v]") || joined.contains("format=yuv422p,"), qPrintable(joined));
+        QVERIFY(joined.contains("-c:v dnxhd -profile:v dnxhr_lb"));
+        QVERIFY(joined.contains("-c:a pcm_s24le"));
+        Preset hqx = hq;
+        hqx.video = "dnxhr_hqx";
+        QVERIFY(buildCommand(hqx, info, "/x/in.mov", "/y/out.mov").arguments.join(' ').contains("yuv422p10le"));
+        Preset mp4 = hq;
+        mp4.container = "mp4";
+        QVERIFY(!presetProblem(mp4).isEmpty());
+    }
+
     void copyCutsAndRewraps() {
         Preset copy, rewrap;
         for (const Preset &p : builtinPresets()) {

@@ -100,6 +100,25 @@ QList<Preset> builtinPresets() {
     master.video = "prores_422";
     add(master);
 
+    // DNxHR: what Resolve on Linux reads where it can't read H.264 or AAC.
+    Preset dnxProxy = proxy;
+    dnxProxy.id = "dnxhr-lb";
+    dnxProxy.suffix = "_dnxlb";
+    dnxProxy.name = "Edit proxy (DNxHR LB)";
+    dnxProxy.description = "Light editing proxy for Resolve (including on Linux), Avid and Premiere. "
+                           "Uncompressed 24-bit audio.";
+    dnxProxy.video = "dnxhr_lb";
+    add(dnxProxy);
+
+    Preset dnxMaster = dnxProxy;
+    dnxMaster.id = "dnxhr-hq";
+    dnxMaster.suffix = "_dnxhq";
+    dnxMaster.name = "Edit master (DNxHR HQ)";
+    dnxMaster.description = "High-quality 8-bit intermediate for finishing in Resolve, Avid or Premiere. "
+                            "Large files. Uncompressed 24-bit audio.";
+    dnxMaster.video = "dnxhr_hq";
+    add(dnxMaster);
+
     // No re-encoding: seconds instead of minutes, and not a bit of quality
     // lost. With in and out points it's a lossless cut.
     Preset copy;
@@ -156,7 +175,7 @@ QList<Preset> builtinPresets() {
 }
 
 QString presetProblem(const Preset &p) {
-    const bool prores = p.video.startsWith("prores");
+    const bool prores = p.video.startsWith("prores") || p.video.startsWith("dnxhr");
     const bool pcm = p.audio.startsWith("pcm");
     if (p.container == "wav") {
         if (!p.audioOnly() || !(pcm || p.copiesAudio()))
@@ -272,8 +291,10 @@ bool onGpu(const Preset &p) {
 }
 
 QString pixelFormatFor(const Preset &p) {
-    if (p.video.startsWith("prores"))
+    if (p.video.startsWith("prores") || p.video == "dnxhr_hqx")
         return "yuv422p10le";
+    if (p.video.startsWith("dnxhr"))
+        return "yuv422p";
     // GPU encoders take their own layouts: NV12 for 8-bit, P010 for 10-bit.
     if (onGpu(p) && p.hardware != "nvenc")
         return p.video == "hevc" ? "p010le" : "nv12";
@@ -510,6 +531,8 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             const QStringList profiles{"prores_proxy", "prores_lt", "prores_422", "prores_hq"};
             a << "-c:v" << "prores_ks" << "-profile:v" << QString::number(std::max<qsizetype>(0, profiles.indexOf(p.video)))
               << "-vendor" << "apl0";
+        } else if (p.video.startsWith("dnxhr")) {
+            a << "-c:v" << "dnxhd" << "-profile:v" << p.video;
         } else if (p.video == "vp9") {
             a << "-c:v" << "libvpx-vp9" << "-crf" << QString::number(p.crf) << "-b:v" << "0"
               << "-row-mt" << "1" << "-deadline" << "good" << "-cpu-used" << "2";

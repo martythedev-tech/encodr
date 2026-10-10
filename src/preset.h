@@ -20,7 +20,8 @@ struct Preset {
     // mp4, mov, mkv, webm, wav, flac, m4a, or "source": the source's own
     // container (for cutting or copying without re-encoding).
     QString container = "mp4";
-    // h264, hevc, prores_proxy, prores_lt, prores_422, prores_hq, vp9, none,
+    // h264, hevc, prores_proxy, prores_lt, prores_422, prores_hq, dnxhr_lb,
+    // dnxhr_sq, dnxhr_hq, dnxhr_hqx, vp9, none,
     // or "copy": the source's video as it is, not re-encoded.
     QString video = "h264";
     int crf = 18;
