@@ -21,8 +21,9 @@ if [ -f "$FFMPEG_DIR/LICENSE.txt" ]; then
     install -Dm644 "$FFMPEG_DIR/LICENSE.txt" "$APPDIR/usr/share/licenses/ffmpeg/LICENSE.txt"
 fi
 
-# Wayland as well as X11; the plugin's file name changed across Qt versions.
-WAYLAND="$(cd "$QT_PLUGINS/platforms" && ls libqwayland*.so 2>/dev/null | tr '\n' ';' | sed 's/;$//')"
+# Wayland as well as X11 (the plugin's file name changed across Qt
+# versions), and offscreen for running without a display, as the tests do.
+WAYLAND="$(cd "$QT_PLUGINS/platforms" && ls libqwayland*.so libqoffscreen.so 2>/dev/null | tr '\n' ';' | sed 's/;$//')"
 
 export QMAKE
 export QML_SOURCES_PATHS="$ROOT/src"
