@@ -33,6 +33,7 @@ Job::Job(int id, const QString &inputPath, QObject *parent)
     const QString stem = QString("%1/preview-%2-%3").arg(cache).arg(QCoreApplication::applicationPid()).arg(id);
     m_previewOut = stem + "-out.jpg";
     m_previewSource = stem + "-source.jpg";
+    m_strip = stem + "-strip.jpg";
 }
 
 Job::~Job() {
@@ -47,6 +48,7 @@ Job::~Job() {
         QFile::remove(partialPathFor(m_finalPath));
     QFile::remove(m_previewOut);
     QFile::remove(m_previewSource);
+    QFile::remove(m_strip);
 }
 
 QString Job::fileName() const {
@@ -188,6 +190,7 @@ void Job::probe() {
         emit presetChanged();
         emit trimChanged();    // the out point defaults to the end, now known
         makePoster(m_info.duration * 0.1);
+        makeStrip();
         scanLevels(0);
     });
     process->start("ffprobe", {"-v", "error", "-print_format", "json", "-show_format", "-show_streams", m_input});
@@ -231,6 +234,18 @@ void Job::makePoster(double at) {
         }
     });
     process->start("ffmpeg", posterArguments(m_info, m_input, at, m_previewSource));
+}
+
+void Job::makeStrip() {
+    if (!m_info.hasVideo || m_info.duration <= 0)
+        return;
+    auto *process = new QProcess(this);
+    connect(process, &QProcess::finished, this, [this, process](int code, QProcess::ExitStatus) {
+        process->deleteLater();
+        m_hasStrip = code == 0 && QFileInfo::exists(m_strip);
+        emit previewChanged();
+    });
+    process->start("ffmpeg", stripArguments(m_info, m_input, stripCount(), 72, m_strip));
 }
 
 void Job::checkPreview() {

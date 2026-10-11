@@ -66,6 +66,14 @@ ApplicationWindow {
     Shortcut { sequence: "F"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.revealOutput(backend.selectedIndex) }
     Shortcut { sequence: "V"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: viewer.cycle() }
     Shortcut { sequence: "X"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: backend.clearFinished() }
+    // The player and the in and out points.
+    Shortcut { sequence: "P"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: viewer.togglePlay() }
+    Shortcut { sequence: "["; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: viewer.markIn() }
+    Shortcut { sequence: "]"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: viewer.markOut() }
+    Shortcut { sequence: "Left"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: viewer.step(-1) }
+    Shortcut { sequence: "Right"; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: viewer.step(1) }
+    Shortcut { sequence: ","; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: viewer.step(-viewer.frameStep) }
+    Shortcut { sequence: "."; context: Qt.ApplicationShortcut; enabled: !win.blocked; onActivated: viewer.step(viewer.frameStep) }
 
     component Hairline: Rectangle { color: theme.border; implicitHeight: 1; implicitWidth: 1 }
     // A split handle: a gap of window background between panels that shows a

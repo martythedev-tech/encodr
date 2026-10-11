@@ -100,6 +100,10 @@ QStringList loudnessArguments(const Preset &preset, const MediaInfo &info, const
 
 // `loudness` holds the measuring pass's result for each audio stream; without
 // it, a loudness target is shown as a one-pass filter.
+// A strip of `count` thumbnails across the source, side by side in one JPEG,
+// from fast seeks (nothing decoded beyond the frames themselves).
+QStringList stripArguments(const MediaInfo &info, const QString &input, int count, int height, const QString &jpeg);
+
 Command buildCommand(const Preset &preset, const MediaInfo &info, const QString &input,
                      const QString &output, double start = -1, double length = -1,
                      const QString &previewOut = {}, const QString &previewSource = {},

@@ -68,6 +68,10 @@ class Job : public QObject {
     Q_PROPERTY(int previewStamp READ previewStamp NOTIFY previewChanged)
     Q_PROPERTY(bool hasLivePreview READ hasLivePreview NOTIFY previewChanged)
     Q_PROPERTY(double posterTime READ posterTime NOTIFY previewChanged)
+    // Thumbnails across the whole source, for the timeline.
+    Q_PROPERTY(QString strip READ strip CONSTANT)
+    Q_PROPERTY(int stripCount READ stripCount CONSTANT)
+    Q_PROPERTY(bool hasStrip READ hasStrip NOTIFY previewChanged)
     // The part of the source to convert: in and out points in seconds.
     Q_PROPERTY(double trimIn READ trimIn NOTIFY trimChanged)
     Q_PROPERTY(double trimOut READ trimOut NOTIFY trimChanged)
@@ -129,6 +133,9 @@ public:
     int previewStamp() const { return m_previewStamp; }
     bool hasLivePreview() const { return m_hasLivePreview; }
     double posterTime() const { return m_posterTime; }
+    QString strip() const { return m_strip; }
+    int stripCount() const { return 16; }
+    bool hasStrip() const { return m_hasStrip; }
 
     double trimIn() const { return m_trimIn; }
     double trimOut() const { return m_trimOut > 0 ? m_trimOut : m_info.duration; }
@@ -186,6 +193,7 @@ private:
     void setState(const QString &state, const QString &message = {});
     void scanLevels(int track);
     void makePoster(double at);
+    void makeStrip();
     Command command(const QString &output, bool previews) const;
     void checkPreview();
     void readProgress();
@@ -212,6 +220,8 @@ private:
     double m_trimIn = 0;
     double m_trimOut = 0;       // 0 = the end
     double m_posterTime = 0;
+    QString m_strip;
+    bool m_hasStrip = false;
     double m_posterWanted = -1; // a frame asked for while another was being made
     bool m_posterBusy = false;
 

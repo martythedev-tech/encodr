@@ -351,6 +351,22 @@ QStringList colourFixArguments(const MediaInfo &info) {
     return {};
 }
 
+QStringList stripArguments(const MediaInfo &info, const QString &input, int count, int height, const QString &jpeg) {
+    QStringList a{"-nostdin", "-hide_banner", "-y", "-loglevel", "error"};
+    QStringList graph, labels;
+    const double last = std::max(0.0, info.duration - 1);
+    for (int i = 0; i < count; ++i) {
+        const double at = std::min(last, info.duration * (i + 0.5) / count);
+        a << colourFixArguments(info) << "-ss" << QString::number(at, 'f', 2) << "-i" << input;
+        graph << QString("[%1:v:0]scale=-2:%2:flags=bilinear:out_range=full,format=yuvj420p,setsar=1[t%1]").arg(i).arg(height);
+        labels << QString("[t%1]").arg(i);
+    }
+    graph << labels.join("") + QString("hstack=inputs=%1[s]").arg(count);
+    a << "-filter_complex" << graph.join(';') << "-map" << "[s]" << "-frames:v" << "1" << "-q:v" << "5"
+      << "-update" << "1" << jpeg;
+    return a;
+}
+
 QStringList posterArguments(const MediaInfo &info, const QString &input, double at, const QString &jpeg, int height) {
     QStringList a{"-nostdin", "-hide_banner", "-y", "-loglevel", "error"};
     a << colourFixArguments(info);

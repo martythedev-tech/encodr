@@ -3,6 +3,7 @@
 #include <QCommandLineParser>
 #include <QGuiApplication>
 #include <QIcon>
+#include <QLoggingCategory>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -22,6 +23,12 @@
 #include "theme.h"
 
 int main(int argc, char *argv[]) {
+    // The player's FFmpeg talks a lot (stream dumps, VDPAU probing); keep the
+    // terminal for Encodr's own messages unless someone asks for it.
+    if (!qEnvironmentVariableIsSet("QT_LOGGING_RULES"))
+        QLoggingCategory::setFilterRules("qt.multimedia.ffmpeg*=false");
+    if (!qEnvironmentVariableIsSet("LIBVA_MESSAGING_LEVEL"))
+        qputenv("LIBVA_MESSAGING_LEVEL", "1");    // VA-API drivers: errors only
     QGuiApplication app(argc, argv);
     app.setApplicationName("encodr");
     app.setOrganizationName("encodr");    // ~/.config/encodr/encodr.conf holds the layout

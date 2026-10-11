@@ -31,7 +31,8 @@ WAYLAND="$(cd "$QT_PLUGINS/platforms" && ls libqwayland*.so libqoffscreen.so 2>/
 
 export QMAKE
 export QML_SOURCES_PATHS="$ROOT/src"
-export EXTRA_QT_MODULES="svg"
+# multimedia: the preview player, with its FFmpeg backend plugin.
+export EXTRA_QT_MODULES="svg;multimedia"
 export EXTRA_PLATFORM_PLUGINS="$WAYLAND"
 export LINUXDEPLOY_OUTPUT_VERSION="$VERSION"
 export LDAI_OUTPUT="$ROOT/build/Encodr-$VERSION-$ARCH.AppImage"

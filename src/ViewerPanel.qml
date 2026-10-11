@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtMultimedia
 import "Format.js" as Format
 
 // The middle of the workspace: the picture being converted (or a poster
@@ -22,6 +23,85 @@ Dock {
 
     function cycle() {
         mode = mode === "output" ? "source" : mode === "source" ? "both" : "output";
+    }
+
+    // Outside a conversion the picture is a player: the source, or after a
+    // run (with Output chosen) the finished file.
+    readonly property bool playerMode: job !== null && !active && job.state !== "probing" && job.info.duration > 0
+    readonly property bool playsOutput: playerMode && done && mode === "output"
+    readonly property string playPath: !playerMode ? "" : playsOutput ? job.outputPath : job.inputPath
+    readonly property real position: player.position / 1000
+    readonly property bool playing: player.playbackState === MediaPlayer.PlayingState
+    readonly property real frameStep: job && job.info.fps > 0 ? 1 / job.info.fps : 0.04
+
+    function seek(seconds) {
+        player.position = Math.max(0, Math.round(seconds * 1000));
+    }
+    // While dragging, at most one seek per tick to the latest spot: every
+    // seek decodes from the previous keyframe, and a backlog of them is what
+    // makes scrubbing stutter.
+    property real pendingSeek: -1
+    function scrubTo(seconds) {
+        if (!scrubTimer.running) {
+            seek(seconds);
+            scrubTimer.start();
+        } else {
+            pendingSeek = seconds;
+        }
+    }
+    Timer {
+        id: scrubTimer
+        interval: 50
+        onTriggered: {
+            if (root.pendingSeek >= 0) {
+                root.seek(root.pendingSeek);
+                root.pendingSeek = -1;
+                start();
+            }
+        }
+    }
+    function togglePlay() {
+        if (!playerMode)
+            return;
+        if (playing) {
+            player.pause();
+            return;
+        }
+        // From the in point when the playhead sits outside the kept part.
+        if (job.trimmed && !playsOutput && (position < job.trimIn || position >= job.trimOut - 0.05))
+            seek(job.trimIn);
+        player.play();
+    }
+    function step(seconds) {
+        if (!playerMode)
+            return;
+        player.pause();
+        seek(position + seconds);
+    }
+    function markIn() { if (playerMode && !playsOutput) timeline.markIn(); }
+    function markOut() { if (playerMode && !playsOutput) timeline.markOut(); }
+
+    MediaPlayer {
+        id: player
+        source: root.playPath === "" ? "" : "file://" + encodeURI(root.playPath).replace(/#/g, "%23").replace(/\?/g, "%3F")
+        audioOutput: AudioOutput { id: audioOut }
+        videoOutput: videoOut
+        // Show a frame as soon as a file opens, at the in point. Once per file:
+        // seeking reports "loaded" again, and must not stop playback.
+        property url opened: ""
+        onSourceChanged: opened = ""
+        onMediaStatusChanged: {
+            if (mediaStatus === MediaPlayer.LoadedMedia && opened !== source) {
+                opened = source;
+                root.seek(root.playsOutput || !root.job ? 0 : root.job.trimIn);
+                pause();
+            }
+        }
+        onPositionChanged: {
+            // A trimmed source stops at its out point.
+            if (root.playing && root.job && root.job.trimmed && !root.playsOutput && root.position >= root.job.trimOut)
+                pause();
+        }
     }
 
     title: "Preview"
@@ -49,7 +129,8 @@ Dock {
         },
         Item { Layout.fillWidth: true },
         Segmented {
-            visible: root.hasPicture
+            // Something to compare only once a conversion has started.
+            visible: root.hasPicture && (!root.playerMode || root.done)
             implicitHeight: 22
             options: [{ id: "output", text: "Output" }, { id: "source", text: "Source" }, { id: "both", text: "Side by side" }]
             current: root.mode
@@ -73,7 +154,7 @@ Dock {
                 spacing: 8
                 visible: root.hasPicture
                 Repeater {
-                    model: root.mode === "both" ? ["source", "output"] : [root.mode]
+                    model: root.playerMode ? ["player"] : root.mode === "both" ? ["source", "output"] : [root.mode]
                     Rectangle {
                         required property string modelData
                         Layout.fillWidth: true
@@ -85,6 +166,7 @@ Dock {
                         FrameView {
                             id: frame
                             anchors.fill: parent
+                            visible: modelData !== "player" || !root.playsOutput
                             // Until the run writes processed frames, both views show the source poster.
                             path: !job ? "" : modelData === "output" && root.live ? job.previewOut : job.previewSource
                             stamp: job ? job.previewStamp : 0
@@ -93,7 +175,7 @@ Dock {
                             anchors.left: parent.left
                             anchors.bottom: parent.bottom
                             anchors.margins: 8
-                            visible: frame.ready && job !== null
+                            visible: frame.ready && job !== null && modelData !== "player"
                             color: Qt.rgba(0, 0, 0, 0.6)
                             radius: 3
                             implicitWidth: where.implicitWidth + 12
@@ -120,6 +202,32 @@ Dock {
                 }
             }
 
+            // The player's picture, over the poster until its first frame.
+            VideoOutput {
+                id: videoOut
+                anchors.fill: parent
+                visible: root.playerMode && root.hasPicture
+                fillMode: VideoOutput.PreserveAspectFit
+            }
+            Rectangle {
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                anchors.margins: 8
+                visible: videoOut.visible
+                color: Qt.rgba(0, 0, 0, 0.6)
+                radius: 3
+                implicitWidth: playerTime.implicitWidth + 12
+                implicitHeight: playerTime.implicitHeight + 6
+                Text {
+                    id: playerTime
+                    anchors.centerIn: parent
+                    color: "white"
+                    font.pixelSize: 11
+                    font.features: { "tnum": 1 }
+                    text: (root.playsOutput ? "Output · " : "Source · ") + Format.precise(root.position)
+                }
+            }
+
             ColumnLayout {
                 anchors.centerIn: parent
                 visible: !root.hasPicture
@@ -141,10 +249,31 @@ Dock {
             }
         }
 
-        TrimBar {
+        Timeline {
+            id: timeline
             Layout.fillWidth: true
             job: root.job
-            visible: job !== null && duration > 0 && !root.active && job.state !== "probing"
+            visible: root.playerMode
+            position: root.position
+            playing: root.playing
+            muted: audioOut.muted
+            // Hold still while dragging so the picture follows the mouse, then
+            // carry on playing if it was.
+            property bool resume: false
+            onScrubStarted: { resume = root.playing; if (resume) player.pause(); }
+            onSeek: function (seconds) { root.scrubTo(seconds); }
+            onScrubFinished: {
+                // Land exactly where the mouse let go.
+                scrubTimer.stop();
+                if (root.pendingSeek >= 0)
+                    root.seek(root.pendingSeek);
+                root.pendingSeek = -1;
+                if (resume)
+                    player.play();
+                resume = false;
+            }
+            onPlayPause: root.togglePlay()
+            onToggleMute: audioOut.muted = !audioOut.muted
         }
 
         // Where the job stands.

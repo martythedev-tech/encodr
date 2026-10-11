@@ -17,7 +17,11 @@ Image {
         music: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
         file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
         up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
-        check: '<path d="m5 12 5 5 9-10"/>'
+        check: '<path d="m5 12 5 5 9-10"/>',
+        play: '<path d="M7 5v14l11-7z"/>',
+        pause: '<path d="M8 5v14M16 5v14"/>',
+        sound: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 9a4 4 0 0 1 0 6"/>',
+        mute: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="m17 9 5 6M22 9l-5 6"/>'
     })
 
     width: size

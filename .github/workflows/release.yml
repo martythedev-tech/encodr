@@ -41,7 +41,7 @@ jobs:
       - name: Install build and test dependencies
         run: |
           grep -q '^DisableSandbox' /etc/pacman.conf || sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
-          pacman -Syu --noconfirm --needed git qt6-base qt6-declarative qt6-svg qt6-wayland ffmpeg xdg-desktop-portal libnotify ttf-dejavu
+          pacman -Syu --noconfirm --needed git qt6-base qt6-declarative qt6-svg qt6-wayland qt6-multimedia qt6-multimedia-ffmpeg ffmpeg xdg-desktop-portal libnotify ttf-dejavu
 
       - uses: actions/checkout@v4
 
@@ -106,7 +106,7 @@ jobs:
       - name: Install Qt ${{ env.QT_VERSION }}
         run: |
           host=linux; [ "${{ matrix.arch }}" = aarch64 ] && host=linux_arm64
-          python3 -m aqt install-qt --outputdir "$HOME/Qt" $host desktop "$QT_VERSION" ${{ matrix.qt_arch }}
+          python3 -m aqt install-qt --outputdir "$HOME/Qt" $host desktop "$QT_VERSION" ${{ matrix.qt_arch }} -m qtmultimedia
           echo "QMAKE=$(ls -d "$HOME"/Qt/"$QT_VERSION"/*/bin/qmake)" >> "$GITHUB_ENV"
 
       - name: Fetch ffmpeg
