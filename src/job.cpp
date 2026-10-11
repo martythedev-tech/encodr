@@ -118,6 +118,65 @@ QStringList Job::notes() const {
     return m_info.valid ? command(outputPath(), false).notes : QStringList();
 }
 
+QVariantList Job::issues() const {
+    QList<Issue> list = inspect(m_info);
+    if (m_analysed)
+        list += analysisIssues(m_moments, m_info.duration);
+    return issuesToVariant(list);
+}
+
+int Job::cutCount() const {
+    return int(std::count_if(m_moments.begin(), m_moments.end(), [](const Moment &m) { return m.kind == "cut"; }));
+}
+
+void Job::analyse() {
+    if (!m_info.valid || m_analysis)
+        return;
+    auto *process = new QProcess(this);
+    m_analysis = process;
+    m_analysisPercent = 0;
+    process->setReadChannel(QProcess::StandardOutput);
+    connect(process, &QProcess::readyReadStandardOutput, this, [this, process] {
+        // -progress: out_time_us=… lines; the log itself is on stderr.
+        while (process->canReadLine()) {
+            const QByteArray line = process->readLine().trimmed();
+            if (line.startsWith("out_time_us=") && m_info.duration > 0) {
+                m_analysisPercent = std::clamp(line.mid(12).toDouble() / 1e6 / m_info.duration * 100, 0.0, 100.0);
+                emit analysisChanged();
+            }
+        }
+    });
+    connect(process, &QProcess::finished, this, [this, process](int code, QProcess::ExitStatus status) {
+        process->deleteLater();
+        if (status == QProcess::NormalExit && code == 0) {
+            m_moments = parseAnalysis(process->readAllStandardError(), m_info.duration);
+            m_analysed = true;
+        }
+        m_analysis = nullptr;
+        emit analysisChanged();
+        emit infoChanged();    // the findings
+    });
+    process->start("ffmpeg", analysisArguments(m_info, m_input));
+    emit analysisChanged();
+}
+
+void Job::stopAnalysis() {
+    if (m_analysis)
+        m_analysis->kill();
+}
+
+QString Job::saveEdl() {
+    if (!m_analysed || cutCount() == 0)
+        return {};
+    const QString base = QFileInfo(m_input).completeBaseName();
+    const QString path = uniquePath(QDir(m_outputFolder).filePath(base + "_cuts.edl"));
+    QFile f(path);
+    if (!QDir().mkpath(m_outputFolder) || !f.open(QIODevice::WriteOnly | QIODevice::Text))
+        return {};
+    f.write(edlFromCuts(m_moments, m_info, base).toUtf8());
+    return path;
+}
+
 QString Job::presetProblemText() const {
     const QString problem = presetProblem(m_preset);
     return problem.isEmpty() ? sourceProblem(m_preset, m_info) : problem;

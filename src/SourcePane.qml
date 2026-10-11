@@ -7,6 +7,16 @@ ScrollView {
     id: root
     property var job: null
     readonly property var info: job ? job.info : ({})
+    signal seekRequested(real seconds)
+    property string savedEdl: ""
+    onJobChanged: savedEdl = ""
+
+    function kindColor(kind) {
+        return kind === "black" ? theme.dim : kind === "freeze" ? theme.bad : kind === "silence" ? theme.warn : theme.foreground;
+    }
+    function kindName(kind) {
+        return kind === "black" ? "Black" : kind === "freeze" ? "Frozen picture" : kind === "silence" ? "Silence" : "Cut";
+    }
     clip: true
     contentWidth: availableWidth
 
@@ -87,6 +97,79 @@ ScrollView {
                         Text { text: modelData.detail; color: theme.dim; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
                     }
                 }
+            }
+        }
+
+        // A whole-file check, on request: it decodes every frame.
+        Section {
+            title: "Check the whole file"
+            visible: info.valid === true
+            RowLayout {
+                visible: job !== null && !job.analysing && !job.analysed
+                Layout.fillWidth: true
+                spacing: 10
+                UiButton { text: "Check for black, freezes, silence and cuts"; onClicked: job.analyse() }
+            }
+            Text {
+                visible: job !== null && !job.analysing && !job.analysed
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: "Reads the whole file once, on a small copy of the picture."
+                color: theme.dim
+                font.pixelSize: 11
+            }
+            RowLayout {
+                visible: job !== null && job.analysing
+                spacing: 10
+                Text { text: "Checking… " + Format.number(job.analysisPercent, 0) + "%"; color: theme.foreground; font.pixelSize: 12 }
+                UiButton { kind: "ghost"; text: "Stop"; implicitHeight: 22; onClicked: job.stopAnalysis() }
+            }
+            Repeater {
+                // The problems; cuts are counted below.
+                model: job && job.analysed ? job.moments.filter(m => m.kind !== "cut").slice(0, 50) : []
+                RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Rectangle { implicitWidth: 8; implicitHeight: 8; radius: 2; color: root.kindColor(modelData.kind) }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.kindName(modelData.kind) + "  ·  " + Format.precise(modelData.start) + " – "
+                              + Format.precise(modelData.end) + "  (" + Format.number(modelData.end - modelData.start, 1) + " s)"
+                        color: hover.containsMouse ? theme.accent : theme.foreground
+                        font.pixelSize: 12
+                        font.features: { "tnum": 1 }
+                        MouseArea { id: hover; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.seekRequested(modelData.start) }
+                    }
+                }
+            }
+            Text {
+                visible: job !== null && job.analysed && job.moments.filter(m => m.kind !== "cut").length > 50
+                text: "…and more; the first 50 are listed."
+                color: theme.dim
+                font.pixelSize: 11
+            }
+            RowLayout {
+                visible: job !== null && job.analysed
+                Layout.fillWidth: true
+                spacing: 10
+                Text { text: job ? job.cutCount + " cut" + (job.cutCount === 1 ? "" : "s") + " between shots" : ""; color: theme.foreground; font.pixelSize: 12 }
+                UiButton {
+                    visible: job !== null && job.cutCount > 0
+                    text: "Save cuts as EDL"
+                    implicitHeight: 24
+                    onClicked: root.savedEdl = job.saveEdl() || "failed"
+                }
+                Item { Layout.fillWidth: true }
+                UiButton { kind: "ghost"; text: "Check again"; implicitHeight: 22; onClicked: { root.savedEdl = ""; job.analyse(); } }
+            }
+            Text {
+                visible: root.savedEdl !== ""
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: root.savedEdl === "failed" ? "Couldn't write the EDL to the output folder." : "Saved " + Format.folder(root.savedEdl)
+                color: root.savedEdl === "failed" ? theme.bad : theme.dim
+                font.pixelSize: 11
             }
         }
 

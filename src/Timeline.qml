@@ -107,6 +107,21 @@ ColumnLayout {
                 color: Qt.rgba(0, 0, 0, 0.6)
             }
         }
+        // What the whole-file check found: cuts as faint lines, problems as
+        // coloured bars along the bottom.
+        Repeater {
+            model: job && job.analysed ? job.moments : []
+            Rectangle {
+                required property var modelData
+                readonly property bool cut: modelData.kind === "cut"
+                x: track.xFor(modelData.start)
+                y: cut ? 0 : track.height - 5
+                width: cut ? 1 : Math.max(2, track.xFor(modelData.end) - x)
+                height: cut ? track.height : 5
+                color: cut ? "white" : modelData.kind === "black" ? theme.dim : modelData.kind === "freeze" ? theme.bad : theme.warn
+                opacity: cut ? 0.35 : 0.95
+            }
+        }
         // The kept part, outlined.
         Rectangle {
             visible: bar.cut

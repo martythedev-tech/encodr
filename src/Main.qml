@@ -213,7 +213,7 @@ ApplicationWindow {
                     title: "Source"
                     SplitView.preferredHeight: 340
                     SplitView.minimumHeight: 100
-                    SourcePane { anchors.fill: parent; anchors.topMargin: 10; job: win.job; visible: win.job !== null }
+                    SourcePane { anchors.fill: parent; anchors.topMargin: 10; job: win.job; visible: win.job !== null; onSeekRequested: function (t) { viewer.seek(t); } }
                     Text { anchors.centerIn: parent; visible: win.job === null; text: "Select a file to inspect it"; color: theme.dim; font.pixelSize: 12 }
                 }
                 StatsPanel { SplitView.fillHeight: true; SplitView.minimumHeight: 160; job: win.job }

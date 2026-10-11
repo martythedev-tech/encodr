@@ -9,6 +9,7 @@
 #include <QVariantMap>
 #include <deque>
 
+#include "analysis.h"
 #include "mediainfo.h"
 #include "preset.h"
 #include "progress.h"
@@ -72,6 +73,12 @@ class Job : public QObject {
     Q_PROPERTY(QString strip READ strip CONSTANT)
     Q_PROPERTY(int stripCount READ stripCount CONSTANT)
     Q_PROPERTY(bool hasStrip READ hasStrip NOTIFY previewChanged)
+    // The whole-file check: black, freezes, silence, cuts.
+    Q_PROPERTY(bool analysing READ analysing NOTIFY analysisChanged)
+    Q_PROPERTY(bool analysed READ analysed NOTIFY analysisChanged)
+    Q_PROPERTY(double analysisPercent READ analysisPercent NOTIFY analysisChanged)
+    Q_PROPERTY(QVariantList moments READ moments NOTIFY analysisChanged)
+    Q_PROPERTY(int cutCount READ cutCount NOTIFY analysisChanged)
     // The part of the source to convert: in and out points in seconds.
     Q_PROPERTY(double trimIn READ trimIn NOTIFY trimChanged)
     Q_PROPERTY(double trimOut READ trimOut NOTIFY trimChanged)
@@ -88,7 +95,7 @@ public:
     QString message() const { return m_message; }
     const MediaInfo &info() const { return m_info; }
     QVariantMap infoVariant() const { return m_info.toVariant(); }
-    QVariantList issues() const { return issuesToVariant(inspect(m_info)); }
+    QVariantList issues() const;
     bool levelsScanned() const { return m_levelsScanned; }
     QString mediainfoReport() const { return m_mediainfo; }
     const Preset &presetValue() const { return m_preset; }
@@ -136,6 +143,16 @@ public:
     QString strip() const { return m_strip; }
     int stripCount() const { return 16; }
     bool hasStrip() const { return m_hasStrip; }
+    bool analysing() const { return m_analysis; }
+    bool analysed() const { return m_analysed; }
+    double analysisPercent() const { return m_analysisPercent; }
+    QVariantList moments() const { return momentsToVariant(m_moments); }
+    int cutCount() const;
+    Q_INVOKABLE void analyse();
+    Q_INVOKABLE void stopAnalysis();
+    // Writes the cuts as an EDL beside the output; returns its path, or
+    // empty if it couldn't.
+    Q_INVOKABLE QString saveEdl();
 
     double trimIn() const { return m_trimIn; }
     double trimOut() const { return m_trimOut > 0 ? m_trimOut : m_info.duration; }
@@ -185,6 +202,7 @@ signals:
     void finished(bool ok);
     void previewChanged();
     void trimChanged();
+    void analysisChanged();
 
 private:
     bool launch();    // starts ffmpeg; start() checks first
@@ -221,6 +239,10 @@ private:
     double m_trimOut = 0;       // 0 = the end
     double m_posterTime = 0;
     QString m_strip;
+    QPointer<QProcess> m_analysis;
+    bool m_analysed = false;
+    double m_analysisPercent = 0;
+    QList<Moment> m_moments;
     bool m_hasStrip = false;
     double m_posterWanted = -1; // a frame asked for while another was being made
     bool m_posterBusy = false;

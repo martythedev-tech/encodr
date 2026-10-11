@@ -15,6 +15,7 @@
 #include "browser.h"
 #include "hardware.h"
 #include "appmenu.h"
+#include "analysis.h"
 
 #include <atomic>
 #include <thread>
@@ -854,6 +855,79 @@ private slots:
         const Loudness result = parseLoudnorm(check.readAll());
         QVERIFY2(qAbs(result.input + 23) < 0.6, qPrintable(QString::number(result.input)));
         QVERIFY(result.truePeak <= -0.9);
+    }
+
+    void analysisReadsTheDetectors() {
+        const QByteArray log =
+            "[Parsed_freezedetect_2 @ 0x1] lavfi.freezedetect.freeze_start: 0\n"
+            "[Parsed_blackdetect_1 @ 0x1] black_start:0 black_end:2 black_duration:2\n"
+            "[Parsed_freezedetect_2 @ 0x1] lavfi.freezedetect.freeze_duration: 2\n"
+            "[Parsed_freezedetect_2 @ 0x1] lavfi.freezedetect.freeze_end: 2\n"
+            "[Parsed_scdet_3 @ 0x1] lavfi.scd.score: 42.608, lavfi.scd.time: 2\n"
+            "[Parsed_silencedetect_4 @ 0x1] silence_start: 4.017052\n"
+            "[Parsed_scdet_3 @ 0x1] lavfi.scd.score: 28.095, lavfi.scd.time: 5\n"
+            "[Parsed_freezedetect_2 @ 0x1] lavfi.freezedetect.freeze_start: 5\n"
+            "[Parsed_silencedetect_4 @ 0x1] silence_end: 6.501451 | silence_duration: 2.484399\n";
+        const QList<Moment> m = parseAnalysis(log, 8.0);
+        QStringList kinds;
+        for (const Moment &x : m)
+            kinds << x.kind;
+        // The freeze inside the black is dropped; the last one runs to the end.
+        QCOMPARE(kinds, (QStringList{"black", "cut", "silence", "cut", "freeze"}));
+        QCOMPARE(m.last().end, 8.0);
+        QVERIFY(qAbs(m[2].end - 6.501451) < 1e-6);
+
+        QStringList titles;
+        for (const Issue &i : analysisIssues(m, 8.0))
+            titles << i.level + ":" + i.title;
+        QVERIFY(titles.contains("warn:Silence 1 time in the middle"));
+        QVERIFY(titles.contains("warn:The picture freezes 1 time"));
+        QVERIFY(titles.contains("info:Black at the start or end"));
+        QVERIFY(titles.contains("info:2 cuts between shots"));
+
+        MediaInfo info;
+        info.path = "/x/Reel 1.mov";
+        info.fps = 25;
+        info.duration = 8;
+        info.timecode = "10:00:00:00";
+        const QString edl = edlFromCuts(m, info, "Reel 1");
+        QVERIFY(edl.startsWith("TITLE: Reel 1\nFCM: NON-DROP FRAME\n"));
+        QVERIFY2(edl.contains("001  AX       V     C        10:00:00:00 10:00:02:00 01:00:00:00 01:00:02:00"), qPrintable(edl));
+        QVERIFY(edl.contains("002  AX       V     C        10:00:02:00 10:00:05:00 01:00:02:00 01:00:05:00"));
+        QVERIFY(edl.contains("003  AX       V     C        10:00:05:00 10:00:08:00 01:00:05:00 01:00:08:00"));
+        QVERIFY(edl.contains("* FROM CLIP NAME: Reel 1.mov"));
+    }
+
+    void analysesARealClip() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        const QString source = dir.filePath("problems.mp4");
+        QProcess make;    // 2 s black, 3 s moving, 3 s still bars; silent from 4 to 6.5 s
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "color=black:size=320x180:rate=25:duration=2",
+                              "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=3",
+                              "-f", "lavfi", "-i", "smptebars=size=320x180:rate=25:duration=3",
+                              "-f", "lavfi", "-i", "sine=frequency=440:duration=8",
+                              "-filter_complex", "[0:v][1:v][2:v]concat=n=3:v=1:a=0,format=yuv420p[v];"
+                              "[3:a]volume=enable='between(t,4,6.5)':volume=0[a]",
+                              "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-c:a", "aac", source});
+        QVERIFY(make.waitForFinished(60000));
+        QCOMPARE(make.exitCode(), 0);
+        Job job(1, source);
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        job.analyse();
+        QVERIFY(job.analysing());
+        QTRY_VERIFY_WITH_TIMEOUT(job.analysed(), 30000);
+        QCOMPARE(job.cutCount(), 2);
+        QStringList kinds;
+        for (const QVariant &v : job.moments())
+            kinds << v.toMap().value("kind").toString();
+        QVERIFY2(kinds.contains("black") && kinds.contains("freeze") && kinds.contains("silence"), qPrintable(kinds.join(',')));
+        job.setOutputFolder(dir.filePath("out"));
+        const QString edl = job.saveEdl();
+        QVERIFY(edl.endsWith("problems_cuts.edl"));
+        QVERIFY(QFileInfo(edl).size() > 100);
     }
 
     void convertsARealClip() {

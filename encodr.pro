@@ -17,7 +17,8 @@ HEADERS += \
     src/browser.h \
     src/hardware.h \
     src/theme.h \
-    src/appmenu.h
+    src/appmenu.h \
+    src/analysis.h
 
 SOURCES += \
     src/main.cpp \
@@ -32,6 +33,7 @@ SOURCES += \
     src/browser.cpp \
     src/hardware.cpp \
     src/theme.cpp \
-    src/appmenu.cpp
+    src/appmenu.cpp \
+    src/analysis.cpp
 
 RESOURCES += src/resources.qrc
