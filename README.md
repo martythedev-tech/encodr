@@ -44,6 +44,15 @@ below; and the source details beside live stats. The layout is remembered.
   fit the new file type (ProRes or uncompressed audio into MP4, say).
 - **Nothing left behind.** Every audio track is kept, with its language, and
   subtitles come along (as MP4 text, or exactly as they are in MKV).
+- **Crop.** Remove black bars (found automatically), crop to 16:9, 1:1, 4:5 or
+  9:16 for social media, or set the edges by hand; the player shows what's kept.
+- **Burn in subtitles** from a text track in the file, a subtitle file beside
+  it (`film.srt`, `film.en.ass`) or one you choose. Trimmed copies stay in
+  sync, and burned-in timecode moves to the top to make room.
+- **A LUT for log footage.** Apply a `.cube` LUT (S-Log, V-Log, C-Log…) so
+  review copies look right; the copy is labelled Rec. 709.
+- **A logo.** Put an image (PNG, JPEG, WebP) in a corner or the centre, sized
+  to the picture and as see-through as you like, next to the text watermark.
 - **A source inspector that explains problems and fixes them.** Blank colour
   labels (common on Ki Pro and other recorders), interlaced video, audio split
   across mono tracks, clipping and silent tracks, read-only source drives.
@@ -71,6 +80,19 @@ below; and the source details beside live stats. The layout is remembered.
   hidden partial file and renamed only when it's complete, so a failed or
   stopped conversion leaves nothing behind. Existing files are never overwritten.
 - **The exact ffmpeg command**, ready to copy.
+
+## Known limitations
+
+- **The player shows the source as it is.** Before converting, it doesn't show
+  a LUT, a logo, burned-in subtitles or timecode, or scaling. To check them,
+  watch the live preview during the conversion, or play the finished file
+  (switch the preview to Output). The crop is the exception: the player
+  outlines the part that's kept.
+- **Picture subtitles** (Blu-ray PGS, DVD) are kept in MKV copies but can't be
+  burned in yet; text subtitles can.
+- **GPU encoding** makes files about twice the size of the CPU's at the same
+  quality, and is still marked experimental. Quick Sync needs an Intel GPU
+  from 2020 or later (older ones use VA-API instead).
 
 ## Shortcuts
 
