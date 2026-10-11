@@ -131,6 +131,12 @@ Command buildCommand(const Preset &preset, const MediaInfo &info, const QString 
                      const QString &previewOut = {}, const QString &previewSource = {},
                      const QList<Loudness> &loudness = {});
 
+// One frame at `at` seconds through the conversion's own picture processing
+// (LUT, crop, scale, logo, subtitles, timecode, watermark), at most `height`
+// tall, as a JPEG. Empty when the video isn't processed (copied, audio only).
+QStringList outputStillArguments(const Preset &preset, const MediaInfo &info, const QString &input, double at,
+                                 const QString &jpeg, int height = 1080);
+
 // Input options that relabel blank colour tags in the bitstream, if needed.
 QStringList colourFixArguments(const MediaInfo &info);
 

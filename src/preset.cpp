@@ -492,6 +492,107 @@ QStringList loudnessArguments(const Preset &p, const MediaInfo &info, const QStr
     return a;
 }
 
+namespace {
+// The picture's processing, in order, for the encode and the Output still
+// alike: deinterlace, LUT, crop, scale, logo, subtitles, timecode, watermark.
+// `start` is where the input begins on the source's clock (-1 = the start).
+QStringList videoChain(const Preset &p, const MediaInfo &info, double start, QStringList &notes) {
+    QStringList chain;
+    if (info.interlaced() && p.deinterlace) {
+        chain << "bwdif=mode=send_frame";
+        notes << "Deinterlaced (bwdif)";
+    }
+    // The LUT first: it expects the camera's picture as it was shot.
+    const QString lut = p.lutFile.isEmpty() ? p.lut : p.lutFile;
+    if (!lut.isEmpty()) {
+        chain << "lut3d=file=" + lut + ":interp=tetrahedral";
+        notes << "LUT applied: " + QFileInfo(p.lut.isEmpty() ? lut : p.lut).fileName();
+    }
+    // Crop before scaling, so a size limit and anything burned in fit the
+    // picture that's kept.
+    int height = info.height;
+    if (p.crops()) {
+        const int w = info.width - p.cropLeft - p.cropRight;
+        height = info.height - p.cropTop - p.cropBottom;
+        chain << QString("crop=%1:%2:%3:%4").arg(w).arg(height).arg(p.cropLeft).arg(p.cropTop);
+        notes << QString("Cropped to %1×%2").arg(w).arg(height);
+    }
+    if (p.maxHeight > 0 && height > p.maxHeight) {
+        chain << QString("scale=-2:%1:flags=lanczos").arg(p.maxHeight);
+        notes << QString("Scaled down to %1p").arg(p.maxHeight);
+        height = p.maxHeight;
+    }
+    // The logo, sized against the finished picture. The chain is a line,
+    // so the second picture joins it through a labelled detour.
+    const QString logo = p.logoFile.isEmpty() ? p.logo : p.logoFile;
+    if (!logo.isEmpty()) {
+        const int size = std::max(8, int(std::lround(height * p.logoSize / 100.0)) & ~1);
+        const int m = std::max(4, int(std::lround(height * 0.04)));
+        static const QHash<QString, QString> places{
+            {"tl", "x=%1:y=%1"}, {"tr", "x=W-w-%1:y=%1"}, {"bl", "x=%1:y=H-h-%1"},
+            {"br", "x=W-w-%1:y=H-h-%1"}, {"c", "x=(W-w)/2:y=(H-h)/2"}};
+        const QString place = places.value(p.logoPosition, places.value("tr")).arg(m);
+        chain << QString("null[lv];movie=filename=%1,scale=-1:%2,format=rgba,colorchannelmixer=aa=%3[lg];"
+                         "[lv][lg]overlay=%4:format=auto")
+                     .arg(logo).arg(size).arg(p.logoOpacity / 100.0, 0, 'f', 2).arg(place);
+        notes << QString("Logo %1 at %2% of the height").arg(QFileInfo(p.logo.isEmpty() ? logo : p.logo).fileName())
+                         .arg(p.logoSize);
+    }
+    if (p.burnsSubtitles()) {
+        // After crop and scale, so the text is drawn sharp at the output
+        // size. The filter reads the subtitles on the source's own clock,
+        // while a trimmed input starts at zero: shift the picture onto
+        // that clock for the filter, then back.
+        QString f = "subtitles=filename=" + p.burnSubtitles;
+        if (p.burnSubtitleTrack >= 0)
+            f += QString(":si=%1").arg(p.burnSubtitleTrack);
+        if (start > 0)
+            f = QString("setpts=PTS+%1/TB,%2,setpts=PTS-STARTPTS").arg(start, 0, 'f', 3).arg(f);
+        chain << f;
+        notes << "Subtitles burned in from " + p.burnSubtitleName;
+    }
+    if (p.burnTimecode) {
+        const int base = int(std::lround(info.fps));
+        QString tc = info.timecode.isEmpty() ? QString("00:00:00:00") : info.timecode;
+        if (start > 0)
+            tc = offsetTimecode(tc, qint64(std::llround(start * info.fps)), base);
+        QString escaped = tc;
+        escaped.replace(":", "\\:").replace(";", "\\;");
+        const QString rate = info.fpsRational.isEmpty() ? QString::number(info.fps) : info.fpsRational;
+        chain << QString("drawtext=font=monospace:timecode='%1':rate=%2:fontsize=h/16:fontcolor=white"
+                         ":box=1:boxcolor=black@0.55:boxborderw=10:x=(w-tw)/2:y=%3")
+                     .arg(escaped, rate, p.burnsSubtitles() ? QString("h/24") : QString("h-th-h/24"));    // subtitles take the bottom
+        notes << QString("Timecode burned in from %1").arg(tc);
+    }
+    // Only plain characters reach drawtext; its escaping rules for quotes,
+    // colons and percent signs are a trap not worth exposing.
+    const QString mark = QString(p.watermark).remove(QRegularExpression("[^A-Za-z0-9 .!?&()#@+-]")).trimmed();
+    if (!mark.isEmpty()) {
+        chain << QString("drawtext=font=sans:text='%1':fontsize=h/12:fontcolor=white@0.35"
+                         ":x=w-tw-h/24:y=h/24").arg(mark);
+        notes << QString("Watermark \"%1\"").arg(mark);
+    }
+    return chain;
+}
+}
+
+QStringList outputStillArguments(const Preset &p, const MediaInfo &info, const QString &input, double at,
+                                 const QString &jpeg, int height) {
+    if (!info.hasVideo || p.audioOnly() || p.copiesVideo())
+        return {};
+    // The input starts at the frame, as a trimmed run's does at its in point,
+    // so burned-in subtitles and timecode read the same clock as the encode.
+    at = std::max(0.0, at);
+    QStringList notes;
+    QStringList chain = videoChain(p, info, at, notes);
+    chain << QString("scale=-2:'min(ih,%1)':flags=bicubic:out_range=full,format=yuvj420p").arg(height);
+    QStringList a{"-nostdin", "-hide_banner", "-y", "-loglevel", "error"};
+    a << colourFixArguments(info) << "-ss" << QString::number(at, 'f', 3) << "-i" << input
+      << "-filter_complex" << "[0:v:0]" + chain.join(',') + "[o]" << "-map" << "[o]"
+      << "-frames:v" << "1" << "-q:v" << "3" << "-update" << "1" << jpeg;
+    return a;
+}
+
 Command buildCommand(const Preset &p, const MediaInfo &info, const QString &input,
                      const QString &output, double start, double length,
                      const QString &previewOut, const QString &previewSource,
@@ -528,81 +629,7 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
 
     QStringList graph;
     if (withVideo && !copyVideo) {
-        QStringList chain;
-        if (info.interlaced() && p.deinterlace) {
-            chain << "bwdif=mode=send_frame";
-            cmd.notes << "Deinterlaced (bwdif)";
-        }
-        // The LUT first: it expects the camera's picture as it was shot.
-        const QString lut = p.lutFile.isEmpty() ? p.lut : p.lutFile;
-        if (!lut.isEmpty()) {
-            chain << "lut3d=file=" + lut + ":interp=tetrahedral";
-            cmd.notes << "LUT applied: " + QFileInfo(p.lut.isEmpty() ? lut : p.lut).fileName();
-        }
-        // Crop before scaling, so a size limit and anything burned in fit the
-        // picture that's kept.
-        int height = info.height;
-        if (p.crops()) {
-            const int w = info.width - p.cropLeft - p.cropRight;
-            height = info.height - p.cropTop - p.cropBottom;
-            chain << QString("crop=%1:%2:%3:%4").arg(w).arg(height).arg(p.cropLeft).arg(p.cropTop);
-            cmd.notes << QString("Cropped to %1×%2").arg(w).arg(height);
-        }
-        if (p.maxHeight > 0 && height > p.maxHeight) {
-            chain << QString("scale=-2:%1:flags=lanczos").arg(p.maxHeight);
-            cmd.notes << QString("Scaled down to %1p").arg(p.maxHeight);
-            height = p.maxHeight;
-        }
-        // The logo, sized against the finished picture. The chain is a line,
-        // so the second picture joins it through a labelled detour.
-        const QString logo = p.logoFile.isEmpty() ? p.logo : p.logoFile;
-        if (!logo.isEmpty()) {
-            const int size = std::max(8, int(std::lround(height * p.logoSize / 100.0)) & ~1);
-            const int m = std::max(4, int(std::lround(height * 0.04)));
-            static const QHash<QString, QString> places{
-                {"tl", "x=%1:y=%1"}, {"tr", "x=W-w-%1:y=%1"}, {"bl", "x=%1:y=H-h-%1"},
-                {"br", "x=W-w-%1:y=H-h-%1"}, {"c", "x=(W-w)/2:y=(H-h)/2"}};
-            const QString place = places.value(p.logoPosition, places.value("tr")).arg(m);
-            chain << QString("null[lv];movie=filename=%1,scale=-1:%2,format=rgba,colorchannelmixer=aa=%3[lg];"
-                             "[lv][lg]overlay=%4:format=auto")
-                         .arg(logo).arg(size).arg(p.logoOpacity / 100.0, 0, 'f', 2).arg(place);
-            cmd.notes << QString("Logo %1 at %2% of the height").arg(QFileInfo(p.logo.isEmpty() ? logo : p.logo).fileName())
-                             .arg(p.logoSize);
-        }
-        if (p.burnsSubtitles()) {
-            // After crop and scale, so the text is drawn sharp at the output
-            // size. The filter reads the subtitles on the source's own clock,
-            // while a trimmed input starts at zero: shift the picture onto
-            // that clock for the filter, then back.
-            QString f = "subtitles=filename=" + p.burnSubtitles;
-            if (p.burnSubtitleTrack >= 0)
-                f += QString(":si=%1").arg(p.burnSubtitleTrack);
-            if (start > 0)
-                f = QString("setpts=PTS+%1/TB,%2,setpts=PTS-STARTPTS").arg(start, 0, 'f', 3).arg(f);
-            chain << f;
-            cmd.notes << "Subtitles burned in from " + p.burnSubtitleName;
-        }
-        if (p.burnTimecode) {
-            const int base = int(std::lround(info.fps));
-            QString tc = info.timecode.isEmpty() ? QString("00:00:00:00") : info.timecode;
-            if (start > 0)
-                tc = offsetTimecode(tc, qint64(std::llround(start * info.fps)), base);
-            QString escaped = tc;
-            escaped.replace(":", "\\:").replace(";", "\\;");
-            const QString rate = info.fpsRational.isEmpty() ? QString::number(info.fps) : info.fpsRational;
-            chain << QString("drawtext=font=monospace:timecode='%1':rate=%2:fontsize=h/16:fontcolor=white"
-                             ":box=1:boxcolor=black@0.55:boxborderw=10:x=(w-tw)/2:y=%3")
-                         .arg(escaped, rate, p.burnsSubtitles() ? QString("h/24") : QString("h-th-h/24"));    // subtitles take the bottom
-            cmd.notes << QString("Timecode burned in from %1").arg(tc);
-        }
-        // Only plain characters reach drawtext; its escaping rules for quotes,
-        // colons and percent signs are a trap not worth exposing.
-        const QString mark = QString(p.watermark).remove(QRegularExpression("[^A-Za-z0-9 .!?&()#@+-]")).trimmed();
-        if (!mark.isEmpty()) {
-            chain << QString("drawtext=font=sans:text='%1':fontsize=h/12:fontcolor=white@0.35"
-                             ":x=w-tw-h/24:y=h/24").arg(mark);
-            cmd.notes << QString("Watermark \"%1\"").arg(mark);
-        }
+        QStringList chain = videoChain(p, info, start, cmd.notes);
         chain << "format=" + pixelFormatFor(p);
         // VA-API encodes from GPU memory: only the encoder's branch is
         // uploaded, so the preview frames stay ordinary pictures.

@@ -11,6 +11,9 @@ Dock {
     property var job: null
     property int jobIndex: -1
     property string mode: "output"      // output, source, both
+    // Before converting, the player can show the frame at the playhead as the
+    // conversion will make it (a still, while paused): source or output.
+    property string playerView: "source"
     signal stopRequested()
 
     readonly property bool live: job !== null && job.hasLivePreview
@@ -22,7 +25,10 @@ Dock {
                                        : job.state === "paused" ? theme.warn : job.state === "running" ? theme.accent : theme.dim
 
     function cycle() {
-        mode = mode === "output" ? "source" : mode === "source" ? "both" : "output";
+        if (stillMode)
+            playerView = playerView === "output" ? "source" : "output";
+        else
+            mode = mode === "output" ? "source" : mode === "source" ? "both" : "output";
     }
 
     // Outside a conversion the picture is a player: the source, or after a
@@ -33,6 +39,16 @@ Dock {
     readonly property real position: player.position / 1000
     readonly property bool playing: player.playbackState === MediaPlayer.PlayingState
     readonly property real frameStep: job && job.info.fps > 0 ? 1 / job.info.fps : 0.04
+    // The player before a finished run, with something to process.
+    readonly property bool stillMode: playerMode && !done && hasPicture && job.canShowOutput
+    readonly property bool showsStill: stillMode && playerView === "output" && !playing
+
+    function requestStill() {
+        if (showsStill)
+            job.showOutputAt(position);
+    }
+    onShowsStillChanged: requestStill()
+    onPositionChanged: if (!playing) requestStill()
 
     function seek(seconds) {
         player.position = Math.max(0, Math.round(seconds * 1000));
@@ -130,11 +146,17 @@ Dock {
         Item { Layout.fillWidth: true },
         Segmented {
             // Something to compare only once a conversion has started.
-            visible: root.hasPicture && (!root.playerMode || root.done)
+            visible: root.hasPicture && (!root.playerMode || root.done || root.stillMode)
             implicitHeight: 22
-            options: [{ id: "output", text: "Output" }, { id: "source", text: "Source" }, { id: "both", text: "Side by side" }]
-            current: root.mode
-            onPicked: function (id) { root.mode = id; }
+            options: root.stillMode ? [{ id: "source", text: "Source" }, { id: "output", text: "Output" }]
+                                    : [{ id: "output", text: "Output" }, { id: "source", text: "Source" }, { id: "both", text: "Side by side" }]
+            current: root.stillMode ? root.playerView : root.mode
+            onPicked: function (id) {
+                if (root.stillMode)
+                    root.playerView = id;
+                else
+                    root.mode = id;
+            }
         }
     ]
 
@@ -212,7 +234,7 @@ Dock {
             // The crop: what's taken off dimmed, what's kept outlined.
             Item {
                 id: cropMask
-                readonly property bool shown: videoOut.visible && !root.playsOutput && job !== null
+                readonly property bool shown: videoOut.visible && !root.playsOutput && !root.showsStill && job !== null
                                               && (job.cropLeft + job.cropTop + job.cropRight + job.cropBottom) > 0
                                               && job.info.width > 0 && job.info.height > 0
                 readonly property rect area: videoOut.contentRect
@@ -241,6 +263,29 @@ Dock {
                     border.width: 1
                 }
             }
+            // The output still, over the player's picture while paused.
+            Rectangle {
+                anchors.fill: parent
+                visible: root.showsStill
+                color: "black"
+                radius: 4
+                FrameView {
+                    id: still
+                    anchors.fill: parent
+                    path: job ? job.outputStill : ""
+                    stamp: job ? job.outputStillStamp : 0
+                }
+                Text {
+                    anchors.centerIn: parent
+                    visible: !still.ready
+                    text: job && job.outputStillError !== "" ? job.outputStillError : "Processing the frame…"
+                    color: job && job.outputStillError !== "" ? theme.bad : theme.dim
+                    font.pixelSize: 12
+                    width: Math.min(implicitWidth, parent.width - 24)
+                    wrapMode: Text.Wrap
+                    horizontalAlignment: Text.AlignHCenter
+                }
+            }
             Rectangle {
                 anchors.left: parent.left
                 anchors.bottom: parent.bottom
@@ -256,7 +301,15 @@ Dock {
                     color: "white"
                     font.pixelSize: 11
                     font.features: { "tnum": 1 }
-                    text: (root.playsOutput ? "Output · " : "Source · ") + Format.precise(root.position)
+                    text: {
+                        if (!root.showsStill)
+                            return (root.playsOutput ? "Output · " : "Source · ") + Format.precise(root.position)
+                                   + (root.stillMode && root.playerView === "output" ? " · pause to see the output" : "");
+                        if (job.outputStillError !== "" && still.ready)
+                            return "Output · couldn't update: " + job.outputStillError;
+                        return "Output · " + Format.precise(job.outputStillTime >= 0 ? job.outputStillTime : root.position)
+                               + (job.outputStillBusy ? " · updating…" : "");
+                    }
                 }
             }
 

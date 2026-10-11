@@ -1,4 +1,5 @@
 #include <QDir>
+#include <QImage>
 #include <QFile>
 #include <QProcess>
 #include <QSignalSpy>
@@ -988,6 +989,60 @@ private slots:
         QVERIFY(job.notes().contains("Cropped to 1920×800"));
         job.setCropMode("off");
         QVERIFY(!job.runPreset().crops());
+    }
+
+    void outputStillCommands() {
+        const MediaInfo info = parseProbe(kKiPro, "/x/in.mov");
+        Preset p = builtinPresets()[1];    // review with burned-in timecode
+        p.cropTop = 40;
+        p.cropBottom = 40;
+        p.lut = "/c/warm.cube";
+        const QStringList a = outputStillArguments(p, info, "/x/in.mov", 10.0, "/c/still.jpg", 720);
+        const QString joined = a.join(' ');
+        // The conversion's own chain, from the frame, with the timecode read
+        // on the source's clock there (as a run trimmed to 10 s would).
+        QVERIFY2(joined.contains("-ss 10.000 -i /x/in.mov"), qPrintable(joined));
+        QVERIFY(joined.contains("[0:v:0]lut3d=file=/c/warm.cube:interp=tetrahedral,crop=1280:640:0:40"));
+        QVERIFY(joined.contains("timecode='01\\:02\\:25\\:12'"));
+        QVERIFY(joined.contains("scale=-2:'min(ih,720)'"));
+        QVERIFY(joined.contains("prores_metadata"));    // the colour fix, as in the encode
+        QVERIFY(joined.endsWith("-frames:v 1 -q:v 3 -update 1 /c/still.jpg"));
+        QVERIFY(!joined.contains("libx264"));
+
+        Preset copy = builtinPresets()[1];
+        copy.video = "copy";
+        QVERIFY(outputStillArguments(copy, info, "/x/in.mov", 10.0, "/c/still.jpg").isEmpty());
+        const Preset wav = *std::find_if(builtinPresets().cbegin(), builtinPresets().cend(),
+                                         [](const Preset &x) { return x.audioOnly(); });
+        QVERIFY(outputStillArguments(wav, info, "/x/in.mov", 10.0, "/c/still.jpg").isEmpty());
+    }
+
+    void outputStillForReal() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        const QString source = dir.filePath("bars.mp4");
+        QProcess make;
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1920x800:rate=25:duration=4",
+                              "-vf", "pad=1920:1080:0:140:black", "-c:v", "libx264", "-pix_fmt", "yuv420p", source});
+        QVERIFY(make.waitForFinished(60000));
+        QCOMPARE(make.exitCode(), 0);
+        Job job(1, source);
+        job.setPreset(builtinPresets()[2]);    // share: up to 1080p
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        QVERIFY(job.canShowOutput());
+        job.setCropMargins(0, 140, 0, 140);
+        job.showOutputAt(2.0);
+        QTRY_VERIFY_WITH_TIMEOUT(job.outputStillStamp() == 1 && !job.outputStillBusy(), 20000);
+        QCOMPARE(job.outputStillTime(), 2.0);
+        QVERIFY(job.outputStillError().isEmpty());
+        QCOMPARE(QImage(job.outputStill()).size(), QSize(1920, 800));    // the bars are gone, as in the output
+
+        // A change to the processing redraws the same frame.
+        job.setCropMargins(0, 0, 0, 0);
+        QTRY_VERIFY_WITH_TIMEOUT(job.outputStillStamp() == 2 && !job.outputStillBusy(), 20000);
+        QCOMPARE(QImage(job.outputStill()).size(), QSize(1920, 1080));
     }
 
     void subtitleBurnCommands() {

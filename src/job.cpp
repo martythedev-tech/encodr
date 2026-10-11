@@ -36,6 +36,18 @@ Job::Job(int id, const QString &inputPath, QObject *parent)
     m_previewOut = stem + "-out.jpg";
     m_previewSource = stem + "-source.jpg";
     m_strip = stem + "-strip.jpg";
+    m_outputStill = stem + "-output-still.jpg";
+    m_stillTimer.setSingleShot(true);
+    m_stillTimer.setInterval(120);
+    connect(&m_stillTimer, &QTimer::timeout, this, &Job::makeOutputStill);
+    // A change to the processing redraws the still that's showing.
+    auto redraw = [this] {
+        if (m_stillTime >= 0 && m_stillWanted < 0 && !isActive())
+            showOutputAt(m_stillTime);
+    };
+    connect(this, &Job::presetChanged, this, redraw);
+    connect(this, &Job::cropChanged, this, redraw);
+    connect(this, &Job::subtitlesChanged, this, redraw);
     m_subtitleLink = stem + "-subtitles";
 }
 
@@ -52,6 +64,7 @@ Job::~Job() {
     QFile::remove(m_previewOut);
     QFile::remove(m_previewSource);
     QFile::remove(m_strip);
+    QFile::remove(m_outputStill);
     for (const QString &ext : {"srt", "ass", "ssa", "vtt"})
         QFile::remove(m_subtitleLink + "." + ext);
     for (const QString &name : {"-lut.cube", "-logo.png", "-logo.jpg", "-logo.jpeg", "-logo.webp"})
@@ -441,6 +454,59 @@ void Job::makePoster(double at) {
         }
     });
     process->start("ffmpeg", posterArguments(m_info, m_input, at, m_previewSource));
+}
+
+bool Job::canShowOutput() const {
+    const Preset p = runPreset();
+    return m_info.hasVideo && !p.audioOnly() && !p.copiesVideo();
+}
+
+void Job::showOutputAt(double seconds) {
+    if (!canShowOutput())
+        return;
+    m_stillWanted = std::clamp(seconds, 0.0, std::max(0.0, m_info.duration - 0.05));
+    m_stillTimer.start();
+    emit outputStillChanged();
+}
+
+void Job::makeOutputStill() {
+    if (m_stillBusy || m_stillWanted < 0 || isActive())
+        return;    // a running still picks the latest request up when it ends
+    const double at = m_stillWanted;
+    m_stillWanted = -1;
+    const QStringList args = outputStillArguments(runPreset(), m_info, m_input, at, m_outputStill);
+    if (args.isEmpty()) {
+        emit outputStillChanged();
+        return;
+    }
+    linkSubtitles();    // the LUT, logo and subtitle files under the names the filters read
+    m_stillBusy = true;
+    auto *process = new QProcess(this);
+    connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart)
+            return;
+        process->deleteLater();
+        m_stillBusy = false;
+        m_stillError = "ffmpeg isn't installed";
+        emit outputStillChanged();
+    });
+    connect(process, &QProcess::finished, this, [this, process, at](int code, QProcess::ExitStatus status) {
+        process->deleteLater();
+        m_stillBusy = false;
+        if (status == QProcess::NormalExit && code == 0 && QFileInfo::exists(m_outputStill)) {
+            m_stillTime = at;
+            m_stillError.clear();
+            ++m_stillStamp;
+        } else {
+            const QStringList lines = QString::fromUtf8(process->readAllStandardError()).trimmed().split('\n');
+            m_stillError = lines.last().isEmpty() ? QString("ffmpeg couldn't make the frame") : lines.last();
+        }
+        if (m_stillWanted >= 0)
+            m_stillTimer.start();
+        emit outputStillChanged();
+    });
+    emit outputStillChanged();
+    process->start("ffmpeg", args);
 }
 
 void Job::makeStrip() {

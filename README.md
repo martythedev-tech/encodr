@@ -32,6 +32,10 @@ below; and the source details beside live stats. The layout is remembered.
   the finished file afterwards. Under it, thumbnails across the whole clip
   with a playhead to scrub. Keys: P plays, arrows jump a second, comma and
   period step a frame.
+- **See the output before you convert.** Switch the player to Output and,
+  while paused, the frame at the playhead is shown as the conversion will make
+  it: LUT, crop, scaling, logo, burned-in subtitles and timecode, watermark.
+  It updates as you step, scrub or change a setting.
 - **Trim to just the part you need.** Drag the in and out points under the
   thumbnails, or press [ and ] at the playhead. Any preset converts only that
   part, and a trimmed copy keeps its place on the source's timecode.
@@ -83,11 +87,10 @@ below; and the source details beside live stats. The layout is remembered.
 
 ## Known limitations
 
-- **The player shows the source as it is.** Before converting, it doesn't show
-  a LUT, a logo, burned-in subtitles or timecode, or scaling. To check them,
-  watch the live preview during the conversion, or play the finished file
-  (switch the preview to Output). The crop is the exception: the player
-  outlines the part that's kept.
+- **The output is a still, not playback.** Before converting, the Output view
+  shows the processed frame while paused; playing shows the source. To watch
+  the processed picture move, use the live preview during the conversion or
+  play the finished file.
 - **Picture subtitles** (Blu-ray PGS, DVD) are kept in MKV copies but can't be
   burned in yet; text subtitles can.
 - **GPU encoding** can make H.264 files up to a quarter larger than the
@@ -101,7 +104,7 @@ below; and the source details beside live stats. The layout is remembered.
 | Space | Start the queue, or pause / resume |
 | O | Add files (or drag them onto the window) |
 | Double-click | In the browser: open a folder, or queue a file |
-| V | Preview: output, source, or side by side |
+| V | Preview: output, source, or side by side (before converting: source or output still) |
 | C | Stop the current file |
 | R | Convert the selected file again |
 | Enter | Play the finished file |

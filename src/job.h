@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QProcess>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 #include <deque>
@@ -69,6 +70,14 @@ class Job : public QObject {
     Q_PROPERTY(int previewStamp READ previewStamp NOTIFY previewChanged)
     Q_PROPERTY(bool hasLivePreview READ hasLivePreview NOTIFY previewChanged)
     Q_PROPERTY(double posterTime READ posterTime NOTIFY previewChanged)
+    // One frame through the conversion's picture processing (the player's
+    // Output view before converting); the latest request wins.
+    Q_PROPERTY(bool canShowOutput READ canShowOutput NOTIFY presetChanged)
+    Q_PROPERTY(QString outputStill READ outputStill CONSTANT)
+    Q_PROPERTY(int outputStillStamp READ outputStillStamp NOTIFY outputStillChanged)
+    Q_PROPERTY(double outputStillTime READ outputStillTime NOTIFY outputStillChanged)
+    Q_PROPERTY(bool outputStillBusy READ outputStillBusy NOTIFY outputStillChanged)
+    Q_PROPERTY(QString outputStillError READ outputStillError NOTIFY outputStillChanged)
     // Thumbnails across the whole source, for the timeline.
     Q_PROPERTY(QString strip READ strip CONSTANT)
     Q_PROPERTY(int stripCount READ stripCount CONSTANT)
@@ -153,6 +162,13 @@ public:
     int previewStamp() const { return m_previewStamp; }
     bool hasLivePreview() const { return m_hasLivePreview; }
     double posterTime() const { return m_posterTime; }
+    bool canShowOutput() const;
+    QString outputStill() const { return m_outputStill; }
+    int outputStillStamp() const { return m_stillStamp; }
+    double outputStillTime() const { return m_stillTime; }
+    bool outputStillBusy() const { return m_stillBusy || m_stillTimer.isActive(); }
+    QString outputStillError() const { return m_stillError; }
+    Q_INVOKABLE void showOutputAt(double seconds);
     QString strip() const { return m_strip; }
     int stripCount() const { return 16; }
     bool hasStrip() const { return m_hasStrip; }
@@ -236,6 +252,7 @@ signals:
     void analysisChanged();
     void cropChanged();
     void subtitlesChanged();
+    void outputStillChanged();
 
 private:
     bool launch();    // starts ffmpeg; start() checks first
@@ -245,6 +262,7 @@ private:
     void scanLevels(int track);
     void makePoster(double at);
     void makeStrip();
+    void makeOutputStill();
     Command command(const QString &output, bool previews) const;
     void checkPreview();
     void readProgress();
@@ -289,6 +307,13 @@ private:
     bool m_hasStrip = false;
     double m_posterWanted = -1; // a frame asked for while another was being made
     bool m_posterBusy = false;
+    QString m_outputStill;
+    QTimer m_stillTimer;          // gathers quick requests (frame steps, slider drags) into one
+    double m_stillWanted = -1;    // the frame to make next
+    double m_stillTime = -1;      // the frame shown, -1 = none yet
+    int m_stillStamp = 0;
+    bool m_stillBusy = false;
+    QString m_stillError;
 
     QPointer<QProcess> m_process;
     QPointer<QProcess> m_helper;
