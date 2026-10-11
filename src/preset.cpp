@@ -722,9 +722,15 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             else
                 a << "-rc_mode" << "CQP" << "-qp" << QString::number(p.crf + (hevc ? 4 : 6));
             a << "-profile:v" << (hevc ? "main10" : "high");
-            // VA-API in constant-QP mode has no rate cap to honour.
-            if (p.maxrateKbps > 0 && p.hardware != "vaapi")
+            // VA-API in constant-QP mode has no rate cap to honour. Quick Sync
+            // given a cap but no bitrate drops global_quality for a fixed QP
+            // of its own and overshoots the cap; a target just under the cap
+            // selects QVBR, which keeps both (a target equal to it means CBR).
+            if (p.maxrateKbps > 0 && p.hardware != "vaapi") {
+                if (p.hardware == "qsv")
+                    a << "-b:v" << QString("%1k").arg(p.maxrateKbps * 15 / 16);
                 a << "-maxrate" << QString("%1k").arg(p.maxrateKbps) << "-bufsize" << QString("%1k").arg(p.maxrateKbps * 2);
+            }
             if (hevc)
                 a << "-tag:v" << "hvc1";
             cmd.notes << QString("Encoded on the GPU (%1)").arg(gpuName(p.hardware));

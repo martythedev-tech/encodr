@@ -517,6 +517,8 @@ private slots:
         p.hardware = "qsv";
         joined = buildCommand(p, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
         QVERIFY2(joined.contains("-c:v h264_qsv -preset fast -global_quality 18"), qPrintable(joined));
+        // A cap needs a target under it, or Quick Sync ignores the quality (QVBR).
+        QVERIFY2(joined.contains("-b:v 15000k -maxrate 16000k -bufsize 32000k"), qPrintable(joined));
         QVERIFY(joined.contains("format=nv12[v]"));
 
         // VA-API: the device comes first, and only the encoder's branch is
@@ -541,6 +543,9 @@ private slots:
         h.hardware = "vaapi";
         joined = buildCommand(h, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
         QVERIFY2(joined.contains("-c:v hevc_vaapi -rc_mode CQP -qp 26 -profile:v main10"), qPrintable(joined));    // crf 22 + 4
+        h.hardware = "qsv";    // no cap: plain constant quality (ICQ), no bitrate
+        joined = buildCommand(h, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains("-c:v hevc_qsv -preset medium -global_quality 22") && !joined.contains("-b:v"), qPrintable(joined));
 
         // ProRes never goes to the GPU, whatever the setting.
         Preset prores = builtinPresets()[4];
