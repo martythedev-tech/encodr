@@ -9,6 +9,7 @@
 #include <QDBusPendingReply>
 #include <QDir>
 #include <QFileInfo>
+#include <QHash>
 #include <QRandomGenerator>
 #include <QStandardPaths>
 
@@ -187,18 +188,31 @@ void PortalFilePicker::chooseFolder(const QString &currentFolder) {
     requestFile(QStringLiteral("OpenFile"), QStringLiteral("Choose Output Folder"), options, Action::Folder);
 }
 
-void PortalFilePicker::openSubtitles(const QString &folder) {
+void PortalFilePicker::openFile(const QString &kind, const QString &folder) {
+    struct Kind {
+        QString title, accept, filterName;
+        QStringList patterns;
+    };
+    static const QHash<QString, Kind> kinds{
+        {"subtitles", {"Choose Subtitles to Burn In", "Burn In", "Subtitles", {"*.srt", "*.ass", "*.ssa", "*.vtt", "*.SRT"}}},
+        {"lut", {"Choose a LUT", "Use LUT", "3D LUTs (.cube)", {"*.cube", "*.CUBE"}}},
+        {"image", {"Choose a Logo", "Use Logo", "Images", {"*.png", "*.jpg", "*.jpeg", "*.webp", "*.PNG", "*.JPG"}}},
+    };
+    if (!kinds.contains(kind))
+        return;
+    const Kind &k = kinds[kind];
     QVariantMap options;
-    options.insert(QStringLiteral("accept_label"), QStringLiteral("Burn In"));
+    options.insert(QStringLiteral("accept_label"), k.accept);
     options.insert(QStringLiteral("modal"), true);
     options.insert(QStringLiteral("current_folder"), portalPathBytes(QDir(folder).exists() ? folder : openFolder()));
-    const PortalFileFilter subtitles{QStringLiteral("Subtitles"),
-                                     {{0, QStringLiteral("*.srt")}, {0, QStringLiteral("*.ass")}, {0, QStringLiteral("*.ssa")},
-                                      {0, QStringLiteral("*.vtt")}, {0, QStringLiteral("*.SRT")}}};
-    options.insert(QStringLiteral("filters"), QVariant::fromValue(PortalFileFilters{subtitles}));
-    options.insert(QStringLiteral("current_filter"), QVariant::fromValue(subtitles));
+    PortalFileFilter filter{k.filterName, {}};
+    for (const QString &pattern : k.patterns)
+        filter.rules.append({0, pattern});
+    options.insert(QStringLiteral("filters"), QVariant::fromValue(PortalFileFilters{filter}));
+    options.insert(QStringLiteral("current_filter"), QVariant::fromValue(filter));
 
-    requestFile(QStringLiteral("OpenFile"), QStringLiteral("Choose Subtitles to Burn In"), options, Action::Subtitles);
+    m_fileKind = kind;
+    requestFile(QStringLiteral("OpenFile"), k.title, options, Action::File);
 }
 
 bool PortalFilePicker::connectToRequestPath(const QString &path) {
@@ -295,8 +309,8 @@ void PortalFilePicker::handleResponse(uint response, const QVariantMap &results)
     }
     if (action == Action::Folder)
         emit folderSelected(QUrl(uris.first()));
-    if (action == Action::Subtitles)
-        emit subtitlesSelected(QUrl(uris.first()));
+    if (action == Action::File)
+        emit fileSelected(m_fileKind, QUrl(uris.first()));
 }
 
 void PortalFilePicker::clearPending() {

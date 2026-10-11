@@ -14,7 +14,7 @@ public:
 
     void openMedia() override;
     void chooseFolder(const QString &currentFolder) override;
-    void openSubtitles(const QString &folder) override;
+    void openFile(const QString &kind, const QString &folder) override;
 
 private slots:
     void handleResponse(uint response, const QVariantMap &results);
@@ -24,7 +24,7 @@ private:
         None,
         Open,
         Folder,
-        Subtitles
+        File
     };
 
     void requestFile(const QString &method, const QString &title,
@@ -33,5 +33,6 @@ private:
     void clearPending();
 
     QString m_pendingPath;
+    QString m_fileKind;
     Action m_pendingAction = Action::None;
 };

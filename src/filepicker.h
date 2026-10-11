@@ -14,12 +14,12 @@ public:
 
     virtual void openMedia() = 0;
     virtual void chooseFolder(const QString &currentFolder) = 0;
-    // One subtitle file (.srt, .ass, .vtt) to burn in, starting in `folder`.
-    virtual void openSubtitles(const QString &folder) { Q_UNUSED(folder); }
+    // One file of a `kind` (subtitles, lut, image), starting in `folder`.
+    virtual void openFile(const QString &kind, const QString &folder) { Q_UNUSED(kind); Q_UNUSED(folder); }
 
 signals:
     void mediaSelected(const QList<QUrl> &urls);
     void folderSelected(const QUrl &url);
-    void subtitlesSelected(const QUrl &url);
+    void fileSelected(const QString &kind, const QUrl &url);
     void failed(const QString &message);
 };

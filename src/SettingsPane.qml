@@ -313,6 +313,23 @@ ScrollView {
                     }
                 }
                 Field {
+                    label: "LUT"
+                    visible: p.video !== "none"
+                    RowLayout {
+                        width: Math.min(340, parent.width)
+                        spacing: 8
+                        Text {
+                            Layout.fillWidth: true
+                            elide: Text.ElideMiddle
+                            text: root.p.lut ? root.p.lut.split("/").pop() : "None (for log footage: a .cube file)"
+                            color: root.p.lut ? theme.foreground : theme.dim
+                            font.pixelSize: 12
+                        }
+                        UiButton { text: "Choose…"; implicitHeight: 26; enabled: !root.locked; onClicked: backend.chooseFile(root.jobIndex, "lut") }
+                        UiButton { kind: "ghost"; text: "Remove"; implicitHeight: 26; visible: !!root.p.lut; enabled: !root.locked; onClicked: root.edit("lut", "") }
+                    }
+                }
+                Field {
                     label: "Deinterlace"
                     visible: p.video !== "none" && p.video !== "copy"
                     RowLayout {
@@ -372,7 +389,7 @@ ScrollView {
                                 currentIndex: job ? Math.max(0, indexOfValue(job.subtitleBurn)) : 0
                                 onActivated: {
                                     if (currentValue === "pick") {
-                                        backend.chooseSubtitles(root.jobIndex);
+                                        backend.chooseFile(root.jobIndex, "subtitles");
                                         currentIndex = Qt.binding(() => job ? Math.max(0, indexOfValue(job.subtitleBurn)) : 0);
                                     } else {
                                         job.setSubtitleBurn(currentValue);
@@ -386,6 +403,65 @@ ScrollView {
                                 text: "The timecode moves to the top, out of the subtitles' way."
                                 color: theme.dim
                                 font.pixelSize: 11
+                            }
+                        }
+                    }
+                    Field {
+                        label: "Logo"
+                        ColumnLayout {
+                            width: Math.min(340, parent.width)
+                            spacing: 6
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                Text {
+                                    Layout.fillWidth: true
+                                    elide: Text.ElideMiddle
+                                    text: root.p.logo ? root.p.logo.split("/").pop() : "None (PNG, JPEG or WebP)"
+                                    color: root.p.logo ? theme.foreground : theme.dim
+                                    font.pixelSize: 12
+                                }
+                                UiButton { text: "Choose…"; implicitHeight: 26; enabled: !root.locked; onClicked: backend.chooseFile(root.jobIndex, "image") }
+                                UiButton { kind: "ghost"; text: "Remove"; implicitHeight: 26; visible: !!root.p.logo; enabled: !root.locked; onClicked: root.edit("logo", "") }
+                            }
+                            Segmented {
+                                visible: !!root.p.logo
+                                implicitHeight: 24
+                                enabled: !root.locked
+                                options: [{ id: "tl", text: "↖" }, { id: "tr", text: "↗" }, { id: "c", text: "Centre" },
+                                          { id: "bl", text: "↙" }, { id: "br", text: "↘" }]
+                                current: root.p.logoPosition || "tr"
+                                onPicked: function (id) { root.edit("logoPosition", id); }
+                            }
+                            RowLayout {
+                                visible: !!root.p.logo
+                                Layout.fillWidth: true
+                                spacing: 8
+                                Text { text: "Size"; color: theme.dim; font.pixelSize: 11; Layout.preferredWidth: 48 }
+                                Slider {
+                                    id: logoSizeSlider
+                                    Layout.fillWidth: true
+                                    from: 4; to: 30; stepSize: 1
+                                    enabled: !root.locked
+                                    value: root.p.logoSize || 10
+                                    onPressedChanged: if (!pressed) root.edit("logoSize", Math.round(value))
+                                }
+                                Text { text: Math.round(logoSizeSlider.value) + "%"; color: theme.dim; font.pixelSize: 11; Layout.preferredWidth: 32 }
+                            }
+                            RowLayout {
+                                visible: !!root.p.logo
+                                Layout.fillWidth: true
+                                spacing: 8
+                                Text { text: "Opacity"; color: theme.dim; font.pixelSize: 11; Layout.preferredWidth: 48 }
+                                Slider {
+                                    id: logoOpacitySlider
+                                    Layout.fillWidth: true
+                                    from: 10; to: 100; stepSize: 5
+                                    enabled: !root.locked
+                                    value: root.p.logoOpacity || 80
+                                    onPressedChanged: if (!pressed) root.edit("logoOpacity", Math.round(value))
+                                }
+                                Text { text: Math.round(logoOpacitySlider.value) + "%"; color: theme.dim; font.pixelSize: 11; Layout.preferredWidth: 32 }
                             }
                         }
                     }

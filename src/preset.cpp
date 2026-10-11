@@ -14,6 +14,7 @@ QVariantMap Preset::toVariant() const {
         {"container", container}, {"video", video}, {"crf", crf}, {"maxrateKbps", maxrateKbps},
         {"speed", speed}, {"maxHeight", maxHeight}, {"audio", audio}, {"audioKbps", audioKbps}, {"loudness", loudness},
         {"deinterlace", deinterlace}, {"burnTimecode", burnTimecode}, {"watermark", watermark},
+        {"lut", lut}, {"logo", logo}, {"logoPosition", logoPosition}, {"logoSize", logoSize}, {"logoOpacity", logoOpacity},
         {"hardware", hardware},
         {"audioOnly", audioOnly()},
     };
@@ -38,6 +39,11 @@ Preset Preset::fromVariant(const QVariantMap &m) {
     p.deinterlace = m.value("deinterlace", p.deinterlace).toBool();
     p.burnTimecode = m.value("burnTimecode", p.burnTimecode).toBool();
     p.watermark = m.value("watermark").toString();
+    p.lut = m.value("lut").toString();
+    p.logo = m.value("logo").toString();
+    p.logoPosition = m.value("logoPosition", p.logoPosition).toString();
+    p.logoSize = std::clamp(m.value("logoSize", p.logoSize).toInt(), 2, 50);
+    p.logoOpacity = std::clamp(m.value("logoOpacity", p.logoOpacity).toInt(), 5, 100);
     p.hardware = m.value("hardware", p.hardware).toString();
     return p;
 }
@@ -208,6 +214,9 @@ QString presetProblem(const Preset &p) {
     }
     if (p.audioOnly() && p.audio == "none")
         return "This preset has neither video nor audio.";
+    if (p.copiesVideo() && (!p.lut.isEmpty() || !p.logo.isEmpty()))
+        return QString("A %1 changes the picture, so the video can't be copied as it is. Choose a video codec, "
+                       "or remove it.").arg(p.lut.isEmpty() ? "logo" : "LUT");
     if (p.copiesAudio() && loudnessTarget(p.loudness).lufs < 0)
         return "Setting the loudness changes the audio, so it can't be copied as it is. Choose an audio codec, "
                "or leave the loudness as recorded.";
@@ -253,6 +262,10 @@ QString codecName(const QString &codec) {
 QString sourceProblem(const Preset &p, const MediaInfo &info) {
     if (!info.valid)
         return {};
+    if (!p.lut.isEmpty() && !QFileInfo::exists(p.lut))
+        return QString("The LUT %1 isn't there any more.").arg(QFileInfo(p.lut).fileName());
+    if (!p.logo.isEmpty() && !QFileInfo::exists(p.logo))
+        return QString("The logo %1 isn't there any more.").arg(QFileInfo(p.logo).fileName());
     if (p.burnsSubtitles() && p.copiesVideo())
         return "Burning in subtitles changes the picture, so the video can't be copied as it is. Choose a video "
                "codec, or turn the subtitles off.";
@@ -520,6 +533,12 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             chain << "bwdif=mode=send_frame";
             cmd.notes << "Deinterlaced (bwdif)";
         }
+        // The LUT first: it expects the camera's picture as it was shot.
+        const QString lut = p.lutFile.isEmpty() ? p.lut : p.lutFile;
+        if (!lut.isEmpty()) {
+            chain << "lut3d=file=" + lut + ":interp=tetrahedral";
+            cmd.notes << "LUT applied: " + QFileInfo(p.lut.isEmpty() ? lut : p.lut).fileName();
+        }
         // Crop before scaling, so a size limit and anything burned in fit the
         // picture that's kept.
         int height = info.height;
@@ -532,6 +551,23 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
         if (p.maxHeight > 0 && height > p.maxHeight) {
             chain << QString("scale=-2:%1:flags=lanczos").arg(p.maxHeight);
             cmd.notes << QString("Scaled down to %1p").arg(p.maxHeight);
+            height = p.maxHeight;
+        }
+        // The logo, sized against the finished picture. The chain is a line,
+        // so the second picture joins it through a labelled detour.
+        const QString logo = p.logoFile.isEmpty() ? p.logo : p.logoFile;
+        if (!logo.isEmpty()) {
+            const int size = std::max(8, int(std::lround(height * p.logoSize / 100.0)) & ~1);
+            const int m = std::max(4, int(std::lround(height * 0.04)));
+            static const QHash<QString, QString> places{
+                {"tl", "x=%1:y=%1"}, {"tr", "x=W-w-%1:y=%1"}, {"bl", "x=%1:y=H-h-%1"},
+                {"br", "x=W-w-%1:y=H-h-%1"}, {"c", "x=(W-w)/2:y=(H-h)/2"}};
+            const QString place = places.value(p.logoPosition, places.value("tr")).arg(m);
+            chain << QString("null[lv];movie=filename=%1,scale=-1:%2,format=rgba,colorchannelmixer=aa=%3[lg];"
+                             "[lv][lg]overlay=%4:format=auto")
+                         .arg(logo).arg(size).arg(p.logoOpacity / 100.0, 0, 'f', 2).arg(place);
+            cmd.notes << QString("Logo %1 at %2% of the height").arg(QFileInfo(p.logo.isEmpty() ? logo : p.logo).fileName())
+                             .arg(p.logoSize);
         }
         if (p.burnsSubtitles()) {
             // After crop and scale, so the text is drawn sharp at the output
@@ -664,9 +700,11 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
         cmd.notes << "Video copied as it is, not re-encoded";
     } else if (withVideo) {
         a << "-map" << "[v]";
-        const QString prim = knownTag(info.colorPrimaries) ? info.colorPrimaries : defPrim;
-        const QString trc = knownTag(info.colorTransfer) ? info.colorTransfer : defPrim;
-        const QString space = knownTag(info.colorSpace) ? info.colorSpace : defPrim;
+        // Through a LUT the picture becomes Rec. 709, whatever the camera's was.
+        const bool graded = !p.lut.isEmpty() || !p.lutFile.isEmpty();
+        const QString prim = graded ? QString("bt709") : knownTag(info.colorPrimaries) ? info.colorPrimaries : defPrim;
+        const QString trc = graded ? QString("bt709") : knownTag(info.colorTransfer) ? info.colorTransfer : defPrim;
+        const QString space = graded ? QString("bt709") : knownTag(info.colorSpace) ? info.colorSpace : defPrim;
         if (gpu) {
             const bool hevc = p.video == "hevc";
             const QString encoder = (hevc ? "hevc_" : "h264_") + p.hardware;

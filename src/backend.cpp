@@ -74,11 +74,16 @@ Backend::Backend(FilePicker *picker, const QString &configDir, Telemetry *teleme
             saveConfig();
             emit settingsChanged();
         });
-        connect(m_picker, &FilePicker::subtitlesSelected, this, [this](const QUrl &url) {
-            for (Job *job : m_jobs)
-                if (job->id() == m_subtitlesFor)
-                    job->setSubtitleBurn(url.toLocalFile());
-            m_subtitlesFor = -1;
+        connect(m_picker, &FilePicker::fileSelected, this, [this](const QString &kind, const QUrl &url) {
+            for (int i = 0; i < m_jobs.size(); ++i) {
+                if (m_jobs[i]->id() != m_fileFor)
+                    continue;
+                if (kind == "subtitles")
+                    m_jobs[i]->setSubtitleBurn(url.toLocalFile());
+                else if (kind == "lut" || kind == "image")
+                    editJobPreset(i, kind == "lut" ? "lut" : "logo", url.toLocalFile());
+            }
+            m_fileFor = -1;
         });
         connect(m_picker, &FilePicker::failed, this, &Backend::setNotice);
     }
@@ -148,12 +153,12 @@ QString Backend::folderFor(const QString &input) const {
     return QStandardPaths::writableLocation(QStandardPaths::MoviesLocation) + "/Encodr";
 }
 
-void Backend::chooseSubtitles(int index) {
+void Backend::chooseFile(int index, const QString &kind) {
     Job *job = jobAt(index);
     if (!job || !m_picker)
         return;
-    m_subtitlesFor = job->id();
-    m_picker->openSubtitles(QFileInfo(job->inputPath()).absolutePath());
+    m_fileFor = job->id();
+    m_picker->openFile(kind, QFileInfo(job->inputPath()).absolutePath());
 }
 
 void Backend::addFilesDialog() {

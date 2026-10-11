@@ -39,6 +39,14 @@ struct Preset {
     bool deinterlace = true;       // only applied when the source is interlaced
     bool burnTimecode = false;
     QString watermark;
+    // A .cube LUT for log footage, applied first; the copy is labelled Rec. 709.
+    QString lut;
+    // An image (PNG, JPEG, WebP) over the picture: tl, tr, bl, br or c, its
+    // height as a percentage of the picture's, and how opaque, in percent.
+    QString logo;
+    QString logoPosition = "tr";
+    int logoSize = 10;
+    int logoOpacity = 80;
     // Where H.264/HEVC are encoded: "auto" (a working GPU encoder when GPU
     // encoding is switched on, otherwise the CPU), "cpu", "nvenc", "qsv" or
     // "vaapi". The job resolves "auto" before building the command.
@@ -53,6 +61,9 @@ struct Preset {
     QString burnSubtitles;
     int burnSubtitleTrack = -1;
     QString burnSubtitleName;
+    // Plain-named links to the LUT and logo for ffmpeg's filters; set per run.
+    QString lutFile;
+    QString logoFile;
 
     bool usesVideoEncoder() const { return video == "h264" || video == "hevc"; }
     bool audioOnly() const { return video == "none"; }

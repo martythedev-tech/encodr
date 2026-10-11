@@ -1061,6 +1061,97 @@ private slots:
         QVERIFY2(plain != withLine, "the subtitle line should change the frame at 2 s");
     }
 
+    void lutAndLogoCommands() {
+        QTemporaryDir dir;
+        writeFile(dir.filePath("slog3.cube"), "LUT_3D_SIZE 2\n");
+        writeFile(dir.filePath("brand.png"), "x");
+        const MediaInfo info = parseProbe(kKiPro, "/x/in.mov");    // 1280×720
+        Preset p = builtinPresets()[2];                            // share copy, up to 1080p
+        p.lut = dir.filePath("slog3.cube");
+        p.lutFile = "/c/j-lut.cube";
+        p.logo = dir.filePath("brand.png");
+        p.logoFile = "/c/j-logo.png";
+        p.logoPosition = "bl";
+        p.logoSize = 10;
+        p.logoOpacity = 60;
+        p.cropTop = p.cropBottom = 40;                             // kept picture: 640 high
+        const Command cmd = buildCommand(p, info, "/x/in.mov", "/y/out.mp4");
+        const QString joined = cmd.arguments.join(' ');
+        // The LUT comes before the crop; the logo sizes against what's kept.
+        QVERIFY2(joined.indexOf("lut3d=file=/c/j-lut.cube:interp=tetrahedral") < joined.indexOf("crop=1280:640:0:40"), qPrintable(joined));
+        QVERIFY(joined.contains("null[lv];movie=filename=/c/j-logo.png,scale=-1:64,format=rgba,colorchannelmixer=aa=0.60[lg];"
+                                "[lv][lg]overlay=x=26:y=H-h-26:format=auto"));
+        QVERIFY(joined.contains("-color_primaries bt709 -color_trc bt709 -colorspace bt709"));
+        QVERIFY(cmd.notes.contains("LUT applied: slog3.cube"));
+        QVERIFY(cmd.notes.contains("Logo brand.png at 10% of the height"));
+
+        const Preset back = Preset::fromVariant(p.toVariant());    // saved with the preset
+        QCOMPARE(back.lut, p.lut);
+        QCOMPARE(back.logoPosition, QString("bl"));
+        QCOMPARE(back.logoOpacity, 60);
+        QVERIFY(back.lutFile.isEmpty());                           // links are per run
+
+        Preset copy = p;
+        copy.video = "copy";
+        copy.cropTop = copy.cropBottom = 0;
+        QVERIFY(!presetProblem(copy).isEmpty());
+        Preset gone = p;
+        gone.lut = dir.filePath("missing.cube");
+        QVERIFY(sourceProblem(gone, info).contains("isn't there any more"));
+    }
+
+    void lutAndLogoForReal() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        // Inverts every colour: impossible to miss.
+        QByteArray cube = "LUT_3D_SIZE 2\n";
+        for (int b : {0, 1})
+            for (int g : {0, 1})
+                for (int r : {0, 1})
+                    cube += QByteArray::number(1 - r) + " " + QByteArray::number(1 - g) + " " + QByteArray::number(1 - b) + "\n";
+        writeFile(dir.filePath("invert, v2.cube"), cube);
+        QProcess make;
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "color=red:size=64x64", "-frames:v", "1",
+                              dir.filePath("logo (final).png")});
+        QVERIFY(make.waitForFinished(30000));
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "color=white:size=320x180:rate=25:duration=2",
+                              "-c:v", "libx264", "-pix_fmt", "yuv420p", dir.filePath("white.mp4")});
+        QVERIFY(make.waitForFinished(30000));
+        QCOMPARE(make.exitCode(), 0);
+
+        Job job(1, dir.filePath("white.mp4"));
+        Preset p = builtinPresets().first();
+        p.speed = "ultrafast";
+        p.lut = dir.filePath("invert, v2.cube");
+        p.logo = dir.filePath("logo (final).png");
+        p.logoPosition = "tl";
+        p.logoSize = 20;
+        p.logoOpacity = 100;
+        job.setPreset(p);
+        job.setOutputFolder(dir.filePath("out"));
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        QSignalSpy finished(&job, &Job::finished);
+        QVERIFY(job.start());
+        QVERIFY(finished.wait(60000));
+        QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+
+        // One pixel from the logo's corner and one from the middle, as RGB.
+        auto pixel = [&](int x, int y) {
+            QProcess f;
+            f.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-ss", "1", "-i", dir.filePath("out/white_review.mp4"),
+                               "-frames:v", "1", "-vf", QString("crop=1:1:%1:%2,format=rgb24").arg(x).arg(y),
+                               "-f", "rawvideo", "-"});
+            f.waitForFinished(20000);
+            return f.readAllStandardOutput();
+        };
+        const QByteArray logo = pixel(14, 14), middle = pixel(160, 120);
+        QCOMPARE(logo.size(), 3);
+        QVERIFY2(uchar(logo[0]) > 180 && uchar(logo[1]) < 80, "the red logo, top left");
+        QVERIFY2(uchar(middle[0]) < 60 && uchar(middle[1]) < 60 && uchar(middle[2]) < 60, "white inverted to black by the LUT");
+    }
+
     void convertsARealClip() {
         if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
             QSKIP("ffmpeg is not installed");

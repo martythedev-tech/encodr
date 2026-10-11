@@ -54,6 +54,8 @@ Job::~Job() {
     QFile::remove(m_strip);
     for (const QString &ext : {"srt", "ass", "ssa", "vtt"})
         QFile::remove(m_subtitleLink + "." + ext);
+    for (const QString &name : {"-lut.cube", "-logo.png", "-logo.jpg", "-logo.jpeg", "-logo.webp"})
+        QFile::remove(m_subtitleLink + name);
     QFile::remove(m_subtitleLink + "-source." + QFileInfo(m_input).suffix().toLower());
 }
 
@@ -108,6 +110,10 @@ Preset Job::runPreset() const {
         p.burnSubtitles = m_subtitleLink + "." + QFileInfo(m_subtitleBurn).suffix().toLower();
         p.burnSubtitleName = QFileInfo(m_subtitleBurn).fileName();
     }
+    if (!p.lut.isEmpty())
+        p.lutFile = m_subtitleLink + "-lut.cube";
+    if (!p.logo.isEmpty())
+        p.logoFile = m_subtitleLink + "-logo." + QFileInfo(p.logo).suffix().toLower();
     p.cropLeft = m_crop.left();
     p.cropTop = m_crop.top();
     p.cropRight = m_crop.right();
@@ -307,11 +313,16 @@ void Job::setSubtitleBurn(const QString &value) {
 // a link with a plain name in the cache sidesteps all of it.
 void Job::linkSubtitles() const {
     const Preset p = runPreset();
-    if (!p.burnsSubtitles())
-        return;
-    const QString target = m_subtitleBurn.startsWith("track:") ? m_input : m_subtitleBurn;
-    QFile::remove(p.burnSubtitles);
-    QFile::link(QFileInfo(target).absoluteFilePath(), p.burnSubtitles);
+    auto link = [](const QString &target, const QString &name) {
+        QFile::remove(name);
+        QFile::link(QFileInfo(target).absoluteFilePath(), name);
+    };
+    if (p.burnsSubtitles())
+        link(m_subtitleBurn.startsWith("track:") ? m_input : m_subtitleBurn, p.burnSubtitles);
+    if (!p.lutFile.isEmpty())
+        link(p.lut, p.lutFile);
+    if (!p.logoFile.isEmpty())
+        link(p.logo, p.logoFile);
 }
 
 QString Job::presetProblemText() const {
