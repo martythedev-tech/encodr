@@ -5,7 +5,10 @@ pkgdesc='Convert video and audio with ffmpeg, with every detail of the job on sc
 url='https://github.com/martythedev-tech/encodr'
 arch=('x86_64' 'aarch64')
 license=('MIT')
-depends=('qt6-base' 'qt6-declarative' 'qt6-svg' 'qt6-wayland' 'qt6-multimedia' 'qt6-multimedia-ffmpeg' 'xdg-desktop-portal' 'ffmpeg' 'libnotify')
+# The binary needs at least the Qt it was built against ("Qt_6.12 not
+# found" otherwise), so pacman upgrades Qt with it or says why it can't.
+_qt=$(pacman -Q qt6-base 2>/dev/null | awk '{split($2, v, "."); print v[1] "." v[2]}')
+depends=("qt6-base${_qt:+>=$_qt}" 'qt6-declarative' 'qt6-svg' 'qt6-wayland' 'qt6-multimedia' 'qt6-multimedia-ffmpeg' 'xdg-desktop-portal' 'ffmpeg' 'libnotify')
 optdepends=('mediainfo: full technical report in the Source tab')
 makedepends=('gcc' 'make')
 options=('!debug')
