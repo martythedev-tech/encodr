@@ -527,7 +527,7 @@ private slots:
         joined = cmd.arguments.join(' ');
         QVERIFY2(joined.indexOf("-vaapi_device /dev/dri/renderD129") < joined.indexOf("-i /x/in.mov"), qPrintable(joined));
         QVERIFY(joined.contains("format=nv12,split=2[vsw][pv];[vsw]hwupload[v]"));
-        QVERIFY(joined.contains("-c:v h264_vaapi -rc_mode CQP -qp 18"));
+        QVERIFY(joined.contains("-c:v h264_vaapi -rc_mode CQP -qp 24"));    // crf 18 + 6
         QVERIFY(!joined.contains("-maxrate"));    // no rate cap in constant-QP mode
         QVERIFY(cmd.notes.contains("Encoded on the GPU (VA-API)"));
 
@@ -538,6 +538,9 @@ private slots:
         joined = buildCommand(h, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
         QVERIFY2(joined.contains("format=p010le[v]") && joined.contains("-c:v hevc_nvenc") && joined.contains("-profile:v main10")
                  && joined.contains("-tag:v hvc1"), qPrintable(joined));
+        h.hardware = "vaapi";
+        joined = buildCommand(h, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains("-c:v hevc_vaapi -rc_mode CQP -qp 26 -profile:v main10"), qPrintable(joined));    // crf 22 + 4
 
         // ProRes never goes to the GPU, whatever the setting.
         Preset prores = builtinPresets()[4];

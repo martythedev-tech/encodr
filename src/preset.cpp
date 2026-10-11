@@ -710,14 +710,17 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             const QString encoder = (hevc ? "hevc_" : "h264_") + p.hardware;
             a << "-c:v" << encoder;
             // Constant quality like the CPU path: CRF maps onto each family's
-            // own quality scale, about one step coarser on NVENC.
+            // own quality scale, about one step coarser on NVENC. VA-API's
+            // constant QP at qp = crf looked a little better than x264 at
+            // 1.75-2.8x the size; these offsets match x264/x265 on VMAF
+            // (Intel Iris Xe: H.264 ~25% larger, HEVC the same size).
             if (p.hardware == "nvenc")
                 a << "-preset" << nvencPreset(p.speed) << "-tune" << "hq" << "-rc" << "vbr"
                   << "-cq" << QString::number(p.crf + 1) << "-b:v" << "0";
             else if (p.hardware == "qsv")
                 a << "-preset" << qsvPreset(p.speed) << "-global_quality" << QString::number(p.crf);
             else
-                a << "-rc_mode" << "CQP" << "-qp" << QString::number(p.crf);
+                a << "-rc_mode" << "CQP" << "-qp" << QString::number(p.crf + (hevc ? 4 : 6));
             a << "-profile:v" << (hevc ? "main10" : "high");
             // VA-API in constant-QP mode has no rate cap to honour.
             if (p.maxrateKbps > 0 && p.hardware != "vaapi")

@@ -21,9 +21,9 @@ below; and the source details beside live stats. The layout is remembered.
 - **GPU encoding (experimental, off by default).** Encodr finds the hardware
   encoders that really work on this machine (NVIDIA NVENC, Intel Quick Sync,
   VA-API for Intel and AMD) and can use them for H.264 and HEVC: much faster
-  at the same quality, but files come out larger (often about twice the
-  size). If the GPU refuses a file, it's redone on the CPU. Stats show which
-  GPU is doing the work.
+  at about the same quality, though H.264 files can come out up to a
+  quarter larger. If the GPU refuses a file, it's redone on the CPU. Stats
+  show which GPU is doing the work.
 - **Presets that adapt to the source.** Review copy (H.264), review copy with
   burned-in timecode, small share copy, HEVC, ProRes Proxy and 422, DNxHR LB
   and HQ (what Resolve reads on Linux), lossless WAV and FLAC, AAC audio, a
@@ -90,8 +90,8 @@ below; and the source details beside live stats. The layout is remembered.
   outlines the part that's kept.
 - **Picture subtitles** (Blu-ray PGS, DVD) are kept in MKV copies but can't be
   burned in yet; text subtitles can.
-- **GPU encoding** makes files about twice the size of the CPU's at the same
-  quality, and is still marked experimental. Quick Sync needs an Intel GPU
+- **GPU encoding** can make H.264 files up to a quarter larger than the
+  CPU's at the same quality, and is still marked experimental. Quick Sync needs an Intel GPU
   from 2020 or later (older ones use VA-API instead).
 
 ## Shortcuts
