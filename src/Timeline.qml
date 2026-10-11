@@ -135,12 +135,12 @@ ColumnLayout {
             border.width: 1
             radius: 3
         }
-        // The playhead.
+        // The playhead: overhangs the top only, clear of the trim lane.
         Rectangle {
             x: track.xFor(bar.position) - 1
             y: -3
             width: 2
-            height: parent.height + 6
+            height: parent.height + 3
             color: "white"
             visible: bar.duration > 0
         }
@@ -159,8 +159,8 @@ ColumnLayout {
     Item {
         id: lane
         Layout.fillWidth: true
-        Layout.topMargin: -2
-        implicitHeight: 12
+        Layout.topMargin: 2
+        implicitHeight: 9
 
         Rectangle {
             anchors.verticalCenter: parent.verticalCenter
@@ -176,15 +176,31 @@ ColumnLayout {
             height: 2
             color: bar.cut ? theme.accent : theme.dim
         }
+        // Small triangles pointing up at the strip, square side on the point
+        // like a bracket: the in point's faces right, the out point's left.
         Repeater {
             model: [0, 1]
-            Rectangle {
+            Canvas {
+                id: tab
                 required property int modelData
+                readonly property color fill: bar.cut ? theme.accent : theme.foreground
                 x: track.xFor(modelData === 0 ? bar.inPoint : bar.outPoint) - (modelData === 0 ? 0 : width)
-                width: 10
+                width: 8
                 height: parent.height
-                radius: 2
-                color: bar.cut ? theme.accent : theme.foreground
+                onFillChanged: requestPaint()
+                onPaint: {
+                    const ctx = getContext("2d");
+                    ctx.reset();
+                    ctx.fillStyle = fill;
+                    ctx.beginPath();
+                    if (modelData === 0) {
+                        ctx.moveTo(0, 0); ctx.lineTo(0, height); ctx.lineTo(width, height);
+                    } else {
+                        ctx.moveTo(width, 0); ctx.lineTo(width, height); ctx.lineTo(0, height);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                }
             }
         }
         MouseArea {
