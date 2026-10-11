@@ -251,7 +251,14 @@ QString codecName(const QString &codec) {
 }
 
 QString sourceProblem(const Preset &p, const MediaInfo &info) {
-    if (!info.valid || p.container == "source" || p.container == "mkv")
+    if (!info.valid)
+        return {};
+    if (p.crops() && p.copiesVideo())
+        return "Cropping changes the picture, so the video can't be copied as it is. Choose a video codec, "
+               "or turn the crop off.";
+    if (p.crops() && (info.width - p.cropLeft - p.cropRight < 16 || info.height - p.cropTop - p.cropBottom < 16))
+        return "The crop leaves almost nothing of the picture.";
+    if (p.container == "source" || p.container == "mkv")
         return {};
     const QString container = p.container.toUpper();
     if (p.copiesVideo() && info.hasVideo && kCopyVideo.contains(p.container)
@@ -510,7 +517,16 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             chain << "bwdif=mode=send_frame";
             cmd.notes << "Deinterlaced (bwdif)";
         }
-        if (p.maxHeight > 0 && info.height > p.maxHeight) {
+        // Crop before scaling, so a size limit and anything burned in fit the
+        // picture that's kept.
+        int height = info.height;
+        if (p.crops()) {
+            const int w = info.width - p.cropLeft - p.cropRight;
+            height = info.height - p.cropTop - p.cropBottom;
+            chain << QString("crop=%1:%2:%3:%4").arg(w).arg(height).arg(p.cropLeft).arg(p.cropTop);
+            cmd.notes << QString("Cropped to %1×%2").arg(w).arg(height);
+        }
+        if (p.maxHeight > 0 && height > p.maxHeight) {
             chain << QString("scale=-2:%1:flags=lanczos").arg(p.maxHeight);
             cmd.notes << QString("Scaled down to %1p").arg(p.maxHeight);
         }

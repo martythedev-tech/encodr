@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include <QHash>
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -88,6 +90,10 @@ Preset Job::runPreset() const {
         p.hardware = m_engine;
         p.hardwareDevice = m_engineDevice;
     }
+    p.cropLeft = m_crop.left();
+    p.cropTop = m_crop.top();
+    p.cropRight = m_crop.right();
+    p.cropBottom = m_crop.bottom();
     return p;
 }
 
@@ -177,9 +183,70 @@ QString Job::saveEdl() {
     return path;
 }
 
+QMargins Job::centredCrop(int width, int height, int across, int down) {
+    if (width <= 0 || height <= 0 || across <= 0 || down <= 0)
+        return {};
+    int w = width, h = height;
+    if (qint64(width) * down > qint64(height) * across)
+        w = int(qint64(height) * across / down) & ~1;    // too wide: trim the sides
+    else
+        h = int(qint64(width) * down / across) & ~1;     // too tall: trim top and bottom
+    const int left = ((width - w) / 2) & ~1, top = ((height - h) / 2) & ~1;
+    return QMargins(left, top, width - w - left, height - h - top);
+}
+
+void Job::setCropMode(const QString &mode) {
+    if (isActive())
+        return;
+    m_cropMode = mode;
+    static const QHash<QString, QPair<int, int>> ratios{{"1:1", {1, 1}}, {"9:16", {9, 16}}, {"4:5", {4, 5}}, {"16:9", {16, 9}}};
+    if (mode == "off") {
+        m_crop = {};
+    } else if (mode == "bars") {
+        if (m_barsChecked)
+            m_crop = m_detectedBars;
+        else
+            detectBars();    // sets the crop when it's done
+    } else if (ratios.contains(mode)) {
+        m_crop = centredCrop(m_info.width, m_info.height, ratios[mode].first, ratios[mode].second);
+    }    // custom keeps the margins as they are, to adjust
+    emit cropChanged();
+    emit presetChanged();
+}
+
+void Job::setCropMargins(int left, int top, int right, int bottom) {
+    if (isActive())
+        return;
+    // Even numbers: 4:2:0 video can't split a pixel pair.
+    auto even = [](int v) { return std::max(0, v) & ~1; };
+    m_crop = QMargins(even(left), even(top), even(right), even(bottom));
+    m_cropMode = "custom";
+    emit cropChanged();
+    emit presetChanged();
+}
+
+void Job::detectBars() {
+    if (m_bars || !m_info.hasVideo)
+        return;
+    auto *process = new QProcess(this);
+    m_bars = process;
+    process->setProcessChannelMode(QProcess::MergedChannels);
+    connect(process, &QProcess::finished, this, [this, process](int, QProcess::ExitStatus) {
+        process->deleteLater();
+        m_detectedBars = parseBars(process->readAll(), m_info);
+        m_barsChecked = true;
+        m_bars = nullptr;
+        if (m_cropMode == "bars" && !isActive())
+            m_crop = m_detectedBars;
+        emit cropChanged();
+        emit presetChanged();
+    });
+    process->start("ffmpeg", barArguments(m_info, m_input));
+}
+
 QString Job::presetProblemText() const {
     const QString problem = presetProblem(m_preset);
-    return problem.isEmpty() ? sourceProblem(m_preset, m_info) : problem;
+    return problem.isEmpty() ? sourceProblem(runPreset(), m_info) : problem;
 }
 
 void Job::setTrim(double in, double out) {

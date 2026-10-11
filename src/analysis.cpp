@@ -1,5 +1,6 @@
 #include "analysis.h"
 
+#include <QHash>
 #include <QRegularExpression>
 #include <QVariantMap>
 #include <algorithm>
@@ -20,6 +21,48 @@ QStringList analysisArguments(const MediaInfo &info, const QString &input) {
     }
     a << "-filter_complex" << graph.join(';') << maps << "-f" << "null" << "-";
     return a;
+}
+
+QStringList barArguments(const MediaInfo &info, const QString &input, int samples) {
+    QStringList a{"-nostdin", "-hide_banner", "-nostats"};
+    QStringList graph, outputs;
+    const double last = std::max(0.0, info.duration - 1);
+    for (int i = 0; i < samples; ++i) {
+        const double at = std::min(last, info.duration * (i + 0.5) / samples);
+        a << "-ss" << QString::number(at, 'f', 2) << "-t" << "0.5" << "-i" << input;
+        graph << QString("[%1:v:0]cropdetect=limit=24:round=2:reset=0[c%1]").arg(i);
+        outputs << "-map" << QString("[c%1]").arg(i) << "-f" << "null" << "-";
+    }
+    a << "-filter_complex" << graph.join(';') << outputs;
+    return a;
+}
+
+QMargins parseBars(const QByteArray &log, const MediaInfo &info) {
+    static const QRegularExpression line("Parsed_cropdetect_(\\d+).*x1:(\\d+) x2:(\\d+) y1:(\\d+) y2:(\\d+)");
+    // The last line from each sample is its settled view.
+    QHash<int, QList<int>> last;
+    for (const QByteArray &raw : log.split('\n')) {
+        const QRegularExpressionMatch m = line.match(QString::fromUtf8(raw));
+        if (m.hasMatch())
+            last[m.captured(1).toInt()] = {m.captured(2).toInt(), m.captured(3).toInt(), m.captured(4).toInt(), m.captured(5).toInt()};
+    }
+    int x1 = info.width, x2 = -1, y1 = info.height, y2 = -1;
+    for (const QList<int> &b : std::as_const(last)) {
+        if (b[1] < b[0] || b[3] < b[2])
+            continue;    // all black (a fade): says nothing about bars
+        x1 = std::min(x1, b[0]);
+        x2 = std::max(x2, b[1]);
+        y1 = std::min(y1, b[2]);
+        y2 = std::max(y2, b[3]);
+    }
+    if (x2 < 0 || info.width <= 0 || info.height <= 0)
+        return {};
+    const int left = x1 & ~1, top = y1 & ~1;
+    const int width = (x2 + 1 - left) & ~1, height = (y2 + 1 - top) & ~1;
+    const QMargins bars(left, top, info.width - left - width, info.height - top - height);
+    // A few pixels is an encoder's edge, not a bar.
+    const bool worth = bars.left() + bars.right() >= 8 || bars.top() + bars.bottom() >= 8;
+    return worth ? bars : QMargins();
 }
 
 QList<Moment> parseAnalysis(const QByteArray &log, double duration) {

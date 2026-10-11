@@ -44,11 +44,15 @@ struct Preset {
     // "vaapi". The job resolves "auto" before building the command.
     QString hardware = "auto";
     QString hardwareDevice;        // the VA-API render node; set per run, not saved
+    // Pixels cropped off each edge of the source; set per run from the job
+    // (crop belongs to a file, not a preset), not saved.
+    int cropLeft = 0, cropTop = 0, cropRight = 0, cropBottom = 0;
 
     bool usesVideoEncoder() const { return video == "h264" || video == "hevc"; }
     bool audioOnly() const { return video == "none"; }
     bool copiesVideo() const { return video == "copy"; }
     bool copiesAudio() const { return audio == "copy"; }
+    bool crops() const { return cropLeft || cropTop || cropRight || cropBottom; }
     QVariantMap toVariant() const;
     static Preset fromVariant(const QVariantMap &map);
 };

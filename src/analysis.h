@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QList>
+#include <QMargins>
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
@@ -23,6 +24,14 @@ QList<Moment> parseAnalysis(const QByteArray &log, double duration);
 // or end (fades, slates) are normal and only mentioned.
 QList<Issue> analysisIssues(const QList<Moment> &moments, double duration);
 QVariantList momentsToVariant(const QList<Moment> &moments);
+
+// Black bars: cropdetect at `samples` points across the file (fast seeks,
+// half a second each), all in one ffmpeg run.
+QStringList barArguments(const MediaInfo &info, const QString &input, int samples = 8);
+// The bars to take off, from what cropdetect saw: the largest picture any
+// sample found (a dark scene mustn't crop real picture), on even pixels.
+// Empty margins when there are no bars worth removing.
+QMargins parseBars(const QByteArray &log, const MediaInfo &info);
 
 // The shots between cuts as a CMX 3600 edit decision list, on the source's
 // own timecode, for Resolve, Premiere or Avid.

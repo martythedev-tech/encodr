@@ -228,6 +228,90 @@ ScrollView {
                         { value: 1080, text: "Up to 1080p" }, { value: 720, text: "Up to 720p" },
                         { value: 540, text: "Up to 540p" }, { value: 480, text: "Up to 480p" }] }
                 }
+                // Crop belongs to the file, not the preset: it lives on the job.
+                Field {
+                    label: "Crop"
+                    visible: p.video !== "none"
+                    ColumnLayout {
+                        width: Math.min(340, parent.width)
+                        spacing: 6
+                        ComboBox {
+                            id: cropChoice
+                            Layout.fillWidth: true
+                            implicitHeight: 32
+                            topInset: 0
+                            bottomInset: 0
+                            font.pixelSize: 12
+                            enabled: !root.locked && job !== null
+                            textRole: "text"
+                            valueRole: "value"
+                            model: [
+                                { value: "off", text: "None" },
+                                { value: "bars", text: "Remove black bars (detected)" },
+                                { value: "16:9", text: "Widescreen 16:9 (centred)" },
+                                { value: "1:1", text: "Square 1:1 (centred)" },
+                                { value: "4:5", text: "Portrait 4:5 (centred)" },
+                                { value: "9:16", text: "Vertical 9:16 (centred)" },
+                                { value: "custom", text: "Custom" }]
+                            currentIndex: job ? indexOfValue(job.cropMode) : 0
+                            onActivated: job.setCropMode(currentValue)
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            color: theme.dim
+                            font.pixelSize: 11
+                            visible: text !== ""
+                            text: {
+                                if (!job || job.cropMode === "off")
+                                    return "";
+                                if (job.detectingBars)
+                                    return "Looking for black bars…";
+                                const w = job.info.width - job.cropLeft - job.cropRight;
+                                const h = job.info.height - job.cropTop - job.cropBottom;
+                                if (job.cropMode === "bars" && w === job.info.width && h === job.info.height)
+                                    return "No black bars found: the picture is kept whole.";
+                                var parts = [];
+                                if (job.cropTop || job.cropBottom)
+                                    parts.push(job.cropTop === job.cropBottom ? job.cropTop + " px top and bottom"
+                                                                               : job.cropTop + " px top, " + job.cropBottom + " px bottom");
+                                if (job.cropLeft || job.cropRight)
+                                    parts.push(job.cropLeft === job.cropRight ? job.cropLeft + " px each side"
+                                                                               : job.cropLeft + " px left, " + job.cropRight + " px right");
+                                return (parts.length ? "Removes " + parts.join(" and ") + " → " : "") + w + "×" + h;
+                            }
+                        }
+                        GridLayout {
+                            visible: job !== null && job.cropMode === "custom"
+                            columns: 4
+                            columnSpacing: 8
+                            rowSpacing: 6
+                            Repeater {
+                                model: [["Top", "cropTop"], ["Bottom", "cropBottom"], ["Left", "cropLeft"], ["Right", "cropRight"]]
+                                RowLayout {
+                                    required property var modelData
+                                    spacing: 4
+                                    Text { text: modelData[0]; color: theme.dim; font.pixelSize: 11 }
+                                    SpinBox {
+                                        implicitHeight: 28
+                                        implicitWidth: 72
+                                        topInset: 0
+                                        bottomInset: 0
+                                        font.pixelSize: 11
+                                        from: 0; to: 4000; stepSize: 2; editable: true
+                                        enabled: !root.locked
+                                        value: job ? job[modelData[1]] : 0
+                                        onValueModified: {
+                                            const m = { cropLeft: job.cropLeft, cropTop: job.cropTop, cropRight: job.cropRight, cropBottom: job.cropBottom };
+                                            m[modelData[1]] = value;
+                                            job.setCropMargins(m.cropLeft, m.cropTop, m.cropRight, m.cropBottom);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 Field {
                     label: "Deinterlace"
                     visible: p.video !== "none" && p.video !== "copy"

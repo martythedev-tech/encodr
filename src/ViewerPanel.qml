@@ -209,6 +209,38 @@ Dock {
                 visible: root.playerMode && root.hasPicture
                 fillMode: VideoOutput.PreserveAspectFit
             }
+            // The crop: what's taken off dimmed, what's kept outlined.
+            Item {
+                id: cropMask
+                readonly property bool shown: videoOut.visible && !root.playsOutput && job !== null
+                                              && (job.cropLeft + job.cropTop + job.cropRight + job.cropBottom) > 0
+                                              && job.info.width > 0 && job.info.height > 0
+                readonly property rect area: videoOut.contentRect
+                readonly property real sx: area.width / Math.max(1, job ? job.info.width : 1)
+                readonly property real sy: area.height / Math.max(1, job ? job.info.height : 1)
+                visible: shown
+                x: area.x
+                y: area.y
+                width: area.width
+                height: area.height
+                readonly property real l: job ? job.cropLeft * sx : 0
+                readonly property real t: job ? job.cropTop * sy : 0
+                readonly property real r: job ? width - job.cropRight * sx : width
+                readonly property real b: job ? height - job.cropBottom * sy : height
+                Rectangle { x: 0; y: 0; width: parent.width; height: parent.t; color: Qt.rgba(0, 0, 0, 0.65) }
+                Rectangle { x: 0; y: parent.b; width: parent.width; height: parent.height - parent.b; color: Qt.rgba(0, 0, 0, 0.65) }
+                Rectangle { x: 0; y: parent.t; width: parent.l; height: parent.b - parent.t; color: Qt.rgba(0, 0, 0, 0.65) }
+                Rectangle { x: parent.r; y: parent.t; width: parent.width - parent.r; height: parent.b - parent.t; color: Qt.rgba(0, 0, 0, 0.65) }
+                Rectangle {
+                    x: parent.l
+                    y: parent.t
+                    width: parent.r - parent.l
+                    height: parent.b - parent.t
+                    color: "transparent"
+                    border.color: theme.accent
+                    border.width: 1
+                }
+            }
             Rectangle {
                 anchors.left: parent.left
                 anchors.bottom: parent.bottom

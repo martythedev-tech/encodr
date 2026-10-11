@@ -79,6 +79,15 @@ class Job : public QObject {
     Q_PROPERTY(double analysisPercent READ analysisPercent NOTIFY analysisChanged)
     Q_PROPERTY(QVariantList moments READ moments NOTIFY analysisChanged)
     Q_PROPERTY(int cutCount READ cutCount NOTIFY analysisChanged)
+    // Crop: off, bars (detected black bars), 1:1, 9:16, 4:5, 16:9 (centred)
+    // or custom; the margins are pixels off each edge of the source.
+    Q_PROPERTY(QString cropMode READ cropMode NOTIFY cropChanged)
+    Q_PROPERTY(int cropLeft READ cropLeft NOTIFY cropChanged)
+    Q_PROPERTY(int cropTop READ cropTop NOTIFY cropChanged)
+    Q_PROPERTY(int cropRight READ cropRight NOTIFY cropChanged)
+    Q_PROPERTY(int cropBottom READ cropBottom NOTIFY cropChanged)
+    Q_PROPERTY(bool detectingBars READ detectingBars NOTIFY cropChanged)
+    Q_PROPERTY(bool barsChecked READ barsChecked NOTIFY cropChanged)
     // The part of the source to convert: in and out points in seconds.
     Q_PROPERTY(double trimIn READ trimIn NOTIFY trimChanged)
     Q_PROPERTY(double trimOut READ trimOut NOTIFY trimChanged)
@@ -154,6 +163,18 @@ public:
     // empty if it couldn't.
     Q_INVOKABLE QString saveEdl();
 
+    QString cropMode() const { return m_cropMode; }
+    int cropLeft() const { return m_crop.left(); }
+    int cropTop() const { return m_crop.top(); }
+    int cropRight() const { return m_crop.right(); }
+    int cropBottom() const { return m_crop.bottom(); }
+    bool detectingBars() const { return m_bars; }
+    bool barsChecked() const { return m_barsChecked; }
+    Q_INVOKABLE void setCropMode(const QString &mode);
+    Q_INVOKABLE void setCropMargins(int left, int top, int right, int bottom);
+    // The centred crop for an aspect ratio ("9:16"), on even pixels.
+    static QMargins centredCrop(int width, int height, int across, int down);
+
     double trimIn() const { return m_trimIn; }
     double trimOut() const { return m_trimOut > 0 ? m_trimOut : m_info.duration; }
     bool trimmed() const { return m_trimIn > 0 || (m_trimOut > 0 && m_trimOut < m_info.duration); }
@@ -203,6 +224,7 @@ signals:
     void previewChanged();
     void trimChanged();
     void analysisChanged();
+    void cropChanged();
 
 private:
     bool launch();    // starts ffmpeg; start() checks first
@@ -243,6 +265,12 @@ private:
     bool m_analysed = false;
     double m_analysisPercent = 0;
     QList<Moment> m_moments;
+    QString m_cropMode = "off";
+    QMargins m_crop;
+    QMargins m_detectedBars;
+    QPointer<QProcess> m_bars;
+    bool m_barsChecked = false;
+    void detectBars();
     bool m_hasStrip = false;
     double m_posterWanted = -1; // a frame asked for while another was being made
     bool m_posterBusy = false;

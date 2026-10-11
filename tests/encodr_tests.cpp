@@ -930,6 +930,58 @@ private slots:
         QVERIFY(QFileInfo(edl).size() > 100);
     }
 
+    void cropFindsBarsAndAspects() {
+        MediaInfo info;
+        info.width = 1920;
+        info.height = 1080;
+        const QByteArray log =
+            "[Parsed_cropdetect_0 @ 0x1] x1:0 x2:1919 y1:140 y2:939 w:1920 h:800 x:0 y:140 crop=1920:800:0:140\n"
+            "[Parsed_cropdetect_1 @ 0x1] x1:0 x2:1919 y1:150 y2:931 w:1920 h:780 x:0 y:150 crop=1920:780:0:150\n"   // a darker scene
+            "[Parsed_cropdetect_2 @ 0x1] x1:1919 x2:0 y1:1079 y2:0 w:0 h:0 x:0 y:0 crop=0:0:0:0\n";             // all black: ignored
+        QCOMPARE(parseBars(log, info), QMargins(0, 140, 0, 140));    // the largest picture wins
+        QCOMPARE(parseBars("[Parsed_cropdetect_0 @ 0x1] x1:0 x2:1919 y1:2 y2:1077 crop=1920:1076:0:2\n", info), QMargins());
+
+        QCOMPARE(Job::centredCrop(1920, 1080, 9, 16), QMargins(656, 0, 658, 0));    // 606×1080: even sizes can be 2 px off centre
+        QCOMPARE(Job::centredCrop(1920, 1080, 1, 1), QMargins(420, 0, 420, 0));
+        QCOMPARE(Job::centredCrop(1080, 1920, 16, 9), QMargins(0, 656, 0, 658));
+
+        const MediaInfo source = parseProbe(kKiPro, "/x/in.mov");    // 1280×720
+        Preset p = builtinPresets()[2];   // share copy: up to 1080p
+        p.cropTop = 40;
+        p.cropBottom = 40;
+        const Command cmd = buildCommand(p, source, "/x/in.mov", "/y/out.mp4");
+        const QString joined = cmd.arguments.join(' ');
+        QVERIFY2(joined.contains("crop=1280:640:0:40"), qPrintable(joined));
+        QVERIFY(cmd.notes.contains("Cropped to 1280×640"));
+        Preset copy = p;
+        copy.video = "copy";
+        QVERIFY(sourceProblem(copy, source).contains("Cropping changes the picture"));
+    }
+
+    void detectsBarsForReal() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        const QString source = dir.filePath("scope.mp4");
+        QProcess make;    // a 1920×800 picture letterboxed into 1080
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1920x800:rate=25:duration=6",
+                              "-vf", "pad=1920:1080:0:140:black", "-c:v", "libx264", "-pix_fmt", "yuv420p", source});
+        QVERIFY(make.waitForFinished(60000));
+        QCOMPARE(make.exitCode(), 0);
+        Job job(1, source);
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        job.setCropMode("bars");
+        QVERIFY(job.detectingBars());
+        QTRY_VERIFY_WITH_TIMEOUT(job.barsChecked(), 30000);
+        QCOMPARE(job.cropTop(), 140);
+        QCOMPARE(job.cropBottom(), 140);
+        QCOMPARE(job.cropLeft(), 0);
+        QVERIFY(job.notes().contains("Cropped to 1920×800"));
+        job.setCropMode("off");
+        QVERIFY(!job.runPreset().crops());
+    }
+
     void convertsARealClip() {
         if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
             QSKIP("ffmpeg is not installed");
