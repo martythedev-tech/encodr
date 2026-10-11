@@ -14,6 +14,7 @@ public:
 
     void openMedia() override;
     void chooseFolder(const QString &currentFolder) override;
+    void openSubtitles(const QString &folder) override;
 
 private slots:
     void handleResponse(uint response, const QVariantMap &results);
@@ -22,7 +23,8 @@ private:
     enum class Action {
         None,
         Open,
-        Folder
+        Folder,
+        Subtitles
     };
 
     void requestFile(const QString &method, const QString &title,

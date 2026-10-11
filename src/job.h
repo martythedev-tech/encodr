@@ -88,6 +88,10 @@ class Job : public QObject {
     Q_PROPERTY(int cropBottom READ cropBottom NOTIFY cropChanged)
     Q_PROPERTY(bool detectingBars READ detectingBars NOTIFY cropChanged)
     Q_PROPERTY(bool barsChecked READ barsChecked NOTIFY cropChanged)
+    // Subtitles burned into the picture: "off", "track:N" (a text subtitle
+    // track in the source) or a subtitle file's path.
+    Q_PROPERTY(QString subtitleBurn READ subtitleBurn NOTIFY subtitlesChanged)
+    Q_PROPERTY(QVariantList subtitleChoices READ subtitleChoices NOTIFY subtitlesChanged)
     // The part of the source to convert: in and out points in seconds.
     Q_PROPERTY(double trimIn READ trimIn NOTIFY trimChanged)
     Q_PROPERTY(double trimOut READ trimOut NOTIFY trimChanged)
@@ -175,6 +179,12 @@ public:
     // The centred crop for an aspect ratio ("9:16"), on even pixels.
     static QMargins centredCrop(int width, int height, int across, int down);
 
+    QString subtitleBurn() const { return m_subtitleBurn; }
+    // None, each text track, subtitle files beside the source with its name
+    // (film.srt, film.en.srt) and one picked by hand: [{value, text}].
+    QVariantList subtitleChoices() const;
+    Q_INVOKABLE void setSubtitleBurn(const QString &value);
+
     double trimIn() const { return m_trimIn; }
     double trimOut() const { return m_trimOut > 0 ? m_trimOut : m_info.duration; }
     bool trimmed() const { return m_trimIn > 0 || (m_trimOut > 0 && m_trimOut < m_info.duration); }
@@ -225,6 +235,7 @@ signals:
     void trimChanged();
     void analysisChanged();
     void cropChanged();
+    void subtitlesChanged();
 
 private:
     bool launch();    // starts ffmpeg; start() checks first
@@ -265,6 +276,10 @@ private:
     bool m_analysed = false;
     double m_analysisPercent = 0;
     QList<Moment> m_moments;
+    QString m_subtitleBurn = "off";
+    QString m_pickedSubtitles;      // a file chosen by hand, kept in the list
+    QString m_subtitleLink;         // the plain-named link ffmpeg reads
+    void linkSubtitles() const;
     QString m_cropMode = "off";
     QMargins m_crop;
     QMargins m_detectedBars;

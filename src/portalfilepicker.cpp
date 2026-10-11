@@ -187,6 +187,20 @@ void PortalFilePicker::chooseFolder(const QString &currentFolder) {
     requestFile(QStringLiteral("OpenFile"), QStringLiteral("Choose Output Folder"), options, Action::Folder);
 }
 
+void PortalFilePicker::openSubtitles(const QString &folder) {
+    QVariantMap options;
+    options.insert(QStringLiteral("accept_label"), QStringLiteral("Burn In"));
+    options.insert(QStringLiteral("modal"), true);
+    options.insert(QStringLiteral("current_folder"), portalPathBytes(QDir(folder).exists() ? folder : openFolder()));
+    const PortalFileFilter subtitles{QStringLiteral("Subtitles"),
+                                     {{0, QStringLiteral("*.srt")}, {0, QStringLiteral("*.ass")}, {0, QStringLiteral("*.ssa")},
+                                      {0, QStringLiteral("*.vtt")}, {0, QStringLiteral("*.SRT")}}};
+    options.insert(QStringLiteral("filters"), QVariant::fromValue(PortalFileFilters{subtitles}));
+    options.insert(QStringLiteral("current_filter"), QVariant::fromValue(subtitles));
+
+    requestFile(QStringLiteral("OpenFile"), QStringLiteral("Choose Subtitles to Burn In"), options, Action::Subtitles);
+}
+
 bool PortalFilePicker::connectToRequestPath(const QString &path) {
     m_pendingPath = path;
     return QDBusConnection::sessionBus().connect(
@@ -281,6 +295,8 @@ void PortalFilePicker::handleResponse(uint response, const QVariantMap &results)
     }
     if (action == Action::Folder)
         emit folderSelected(QUrl(uris.first()));
+    if (action == Action::Subtitles)
+        emit subtitlesSelected(QUrl(uris.first()));
 }
 
 void PortalFilePicker::clearPending() {

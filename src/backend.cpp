@@ -74,6 +74,12 @@ Backend::Backend(FilePicker *picker, const QString &configDir, Telemetry *teleme
             saveConfig();
             emit settingsChanged();
         });
+        connect(m_picker, &FilePicker::subtitlesSelected, this, [this](const QUrl &url) {
+            for (Job *job : m_jobs)
+                if (job->id() == m_subtitlesFor)
+                    job->setSubtitleBurn(url.toLocalFile());
+            m_subtitlesFor = -1;
+        });
         connect(m_picker, &FilePicker::failed, this, &Backend::setNotice);
     }
     loadConfig();
@@ -140,6 +146,14 @@ QString Backend::folderFor(const QString &input) const {
     if (QFileInfo(source).isWritable())
         return source;
     return QStandardPaths::writableLocation(QStandardPaths::MoviesLocation) + "/Encodr";
+}
+
+void Backend::chooseSubtitles(int index) {
+    Job *job = jobAt(index);
+    if (!job || !m_picker)
+        return;
+    m_subtitlesFor = job->id();
+    m_picker->openSubtitles(QFileInfo(job->inputPath()).absolutePath());
 }
 
 void Backend::addFilesDialog() {

@@ -982,6 +982,85 @@ private slots:
         QVERIFY(!job.runPreset().crops());
     }
 
+    void subtitleBurnCommands() {
+        const MediaInfo info = parseProbe(kKiPro, "/x/in.mov");
+        Preset p = builtinPresets()[1];    // review with burned-in timecode
+        p.burnSubtitles = "/c/sub-1.srt";
+        p.burnSubtitleName = "film.srt";
+        Command cmd = buildCommand(p, info, "/x/in.mov", "/y/out.mp4");
+        QString joined = cmd.arguments.join(' ');
+        QVERIFY2(joined.contains("subtitles=filename=/c/sub-1.srt,drawtext"), qPrintable(joined));
+        QVERIFY(joined.contains("x=(w-tw)/2:y=h/24"));    // timecode up top, out of the way
+        QVERIFY(cmd.notes.contains("Subtitles burned in from film.srt"));
+
+        // A trimmed run moves the picture onto the subtitles' clock and back.
+        p.burnSubtitles = "/c/src.mkv";
+        p.burnSubtitleTrack = 1;
+        joined = buildCommand(p, info, "/x/in.mov", "/y/out.mp4", 12.5, 10).arguments.join(' ');
+        QVERIFY2(joined.contains("setpts=PTS+12.500/TB,subtitles=filename=/c/src.mkv:si=1,setpts=PTS-STARTPTS"), qPrintable(joined));
+
+        Preset copy = p;
+        copy.video = "copy";
+        QVERIFY(sourceProblem(copy, info).contains("Burning in subtitles"));
+    }
+
+    void subtitleChoicesFindFilesBeside() {
+        QTemporaryDir dir;
+        const QString source = dir.filePath("film.mkv");
+        writeFile(source, "x");
+        writeFile(dir.filePath("film.srt"), "1\n");
+        writeFile(dir.filePath("film.en.ass"), "x");
+        writeFile(dir.filePath("other.srt"), "1\n");
+        Job job(1, source);
+        QStringList texts;
+        for (const QVariant &v : job.subtitleChoices())
+            texts << v.toMap().value("text").toString();
+        QCOMPARE(texts, (QStringList{"None", "film.en.ass", "film.srt", "Choose a file…"}));
+        job.setSubtitleBurn(dir.filePath("film.srt"));
+        QCOMPARE(job.subtitleBurn(), dir.filePath("film.srt"));
+        QVERIFY(job.runPreset().burnSubtitles.endsWith("-subtitles.srt"));
+        job.setSubtitleBurn(dir.filePath("nope.txt"));    // not a subtitle file: ignored
+        QCOMPARE(job.subtitleBurn(), dir.filePath("film.srt"));
+    }
+
+    void burnsSubtitlesForReal() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        const QString source = dir.filePath("talk: one, two.mp4");    // a name filters choke on
+        QProcess make;
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "color=gray:size=320x180:rate=25:duration=10",
+                              "-c:v", "libx264", "-pix_fmt", "yuv420p", source});
+        QVERIFY(make.waitForFinished(60000));
+        QCOMPARE(make.exitCode(), 0);
+        writeFile(dir.filePath("talk: one, two.srt"), "1\n00:00:06,000 --> 00:00:08,000\nHELLO THERE\n");
+
+        Job job(1, source);
+        Preset p = builtinPresets().first();
+        p.speed = "ultrafast";
+        job.setPreset(p);
+        job.setOutputFolder(dir.filePath("out"));
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        job.setSubtitleBurn(dir.filePath("talk: one, two.srt"));
+        job.setTrim(5, 9);    // the line lands 1 s to 3 s into the copy
+        QSignalSpy finished(&job, &Job::finished);
+        QVERIFY(job.start());
+        QVERIFY(finished.wait(60000));
+        QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+
+        auto frameMd5 = [&](const QString &at) {
+            QProcess f;
+            f.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-ss", at, "-i", dir.filePath("out/talk: one, two_review.mp4"),
+                               "-frames:v", "1", "-f", "md5", "-"});
+            f.waitForFinished(20000);
+            return f.readAllStandardOutput().trimmed();
+        };
+        const QByteArray plain = frameMd5("0.5"), withLine = frameMd5("2.0");
+        QVERIFY(!plain.isEmpty());
+        QVERIFY2(plain != withLine, "the subtitle line should change the frame at 2 s");
+    }
+
     void convertsARealClip() {
         if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
             QSKIP("ffmpeg is not installed");

@@ -86,6 +86,8 @@ public:
 
     Q_INVOKABLE void addFilesDialog();
     Q_INVOKABLE void chooseOutputFolder();
+    // Asks for a subtitle file to burn into the job at `index`.
+    Q_INVOKABLE void chooseSubtitles(int index);
     Q_INVOKABLE void useSourceFolders();
     Q_INVOKABLE void addUrls(const QVariantList &urls);
     void addPaths(const QStringList &paths);
@@ -154,6 +156,7 @@ private:
     QString m_notice;
     QList<qint64> m_watchedPids;
     Hardware *m_hardware = nullptr;
+    int m_subtitlesFor = -1;    // the job id a subtitle file is being chosen for
     bool m_gpuEnabled = false;
     int m_parallel = 0;
 

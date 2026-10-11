@@ -253,6 +253,9 @@ QString codecName(const QString &codec) {
 QString sourceProblem(const Preset &p, const MediaInfo &info) {
     if (!info.valid)
         return {};
+    if (p.burnsSubtitles() && p.copiesVideo())
+        return "Burning in subtitles changes the picture, so the video can't be copied as it is. Choose a video "
+               "codec, or turn the subtitles off.";
     if (p.crops() && p.copiesVideo())
         return "Cropping changes the picture, so the video can't be copied as it is. Choose a video codec, "
                "or turn the crop off.";
@@ -530,6 +533,19 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             chain << QString("scale=-2:%1:flags=lanczos").arg(p.maxHeight);
             cmd.notes << QString("Scaled down to %1p").arg(p.maxHeight);
         }
+        if (p.burnsSubtitles()) {
+            // After crop and scale, so the text is drawn sharp at the output
+            // size. The filter reads the subtitles on the source's own clock,
+            // while a trimmed input starts at zero: shift the picture onto
+            // that clock for the filter, then back.
+            QString f = "subtitles=filename=" + p.burnSubtitles;
+            if (p.burnSubtitleTrack >= 0)
+                f += QString(":si=%1").arg(p.burnSubtitleTrack);
+            if (start > 0)
+                f = QString("setpts=PTS+%1/TB,%2,setpts=PTS-STARTPTS").arg(start, 0, 'f', 3).arg(f);
+            chain << f;
+            cmd.notes << "Subtitles burned in from " + p.burnSubtitleName;
+        }
         if (p.burnTimecode) {
             const int base = int(std::lround(info.fps));
             QString tc = info.timecode.isEmpty() ? QString("00:00:00:00") : info.timecode;
@@ -539,8 +555,8 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             escaped.replace(":", "\\:").replace(";", "\\;");
             const QString rate = info.fpsRational.isEmpty() ? QString::number(info.fps) : info.fpsRational;
             chain << QString("drawtext=font=monospace:timecode='%1':rate=%2:fontsize=h/16:fontcolor=white"
-                             ":box=1:boxcolor=black@0.55:boxborderw=10:x=(w-tw)/2:y=h-th-h/24")
-                         .arg(escaped, rate);
+                             ":box=1:boxcolor=black@0.55:boxborderw=10:x=(w-tw)/2:y=%3")
+                         .arg(escaped, rate, p.burnsSubtitles() ? QString("h/24") : QString("h-th-h/24"));    // subtitles take the bottom
             cmd.notes << QString("Timecode burned in from %1").arg(tc);
         }
         // Only plain characters reach drawtext; its escaping rules for quotes,

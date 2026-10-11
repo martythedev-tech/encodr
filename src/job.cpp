@@ -36,6 +36,7 @@ Job::Job(int id, const QString &inputPath, QObject *parent)
     m_previewOut = stem + "-out.jpg";
     m_previewSource = stem + "-source.jpg";
     m_strip = stem + "-strip.jpg";
+    m_subtitleLink = stem + "-subtitles";
 }
 
 Job::~Job() {
@@ -51,6 +52,9 @@ Job::~Job() {
     QFile::remove(m_previewOut);
     QFile::remove(m_previewSource);
     QFile::remove(m_strip);
+    for (const QString &ext : {"srt", "ass", "ssa", "vtt"})
+        QFile::remove(m_subtitleLink + "." + ext);
+    QFile::remove(m_subtitleLink + "-source." + QFileInfo(m_input).suffix().toLower());
 }
 
 QString Job::fileName() const {
@@ -89,6 +93,20 @@ Preset Job::runPreset() const {
     if (p.usesVideoEncoder()) {
         p.hardware = m_engine;
         p.hardwareDevice = m_engineDevice;
+    }
+    if (m_subtitleBurn.startsWith("track:")) {
+        const int track = m_subtitleBurn.mid(6).toInt();
+        // si= counts subtitle streams only, as the track number does.
+        p.burnSubtitles = m_subtitleLink + "-source." + QFileInfo(m_input).suffix().toLower();
+        p.burnSubtitleTrack = track;
+        QString name = QString("subtitle track %1").arg(track + 1);
+        for (const SubtitleTrack &t : m_info.subtitles)
+            if (t.index == track && !t.language.isEmpty() && t.language != "und")
+                name += " (" + t.language + ")";
+        p.burnSubtitleName = name;
+    } else if (m_subtitleBurn != "off" && !m_subtitleBurn.isEmpty()) {
+        p.burnSubtitles = m_subtitleLink + "." + QFileInfo(m_subtitleBurn).suffix().toLower();
+        p.burnSubtitleName = QFileInfo(m_subtitleBurn).fileName();
     }
     p.cropLeft = m_crop.left();
     p.cropTop = m_crop.top();
@@ -242,6 +260,58 @@ void Job::detectBars() {
         emit presetChanged();
     });
     process->start("ffmpeg", barArguments(m_info, m_input));
+}
+
+QVariantList Job::subtitleChoices() const {
+    QVariantList list{QVariantMap{{"value", "off"}, {"text", "None"}}};
+    for (const SubtitleTrack &t : m_info.subtitles) {
+        if (!t.isText())
+            continue;    // pictures (Blu-ray, DVD) need overlaying, not libass
+        QString text = QString("Track %1").arg(t.index + 1);
+        if (!t.language.isEmpty() && t.language != "und")
+            text += " · " + t.language;
+        if (!t.title.isEmpty())
+            text += " · " + t.title;
+        list.append(QVariantMap{{"value", QString("track:%1").arg(t.index)}, {"text", text}});
+    }
+    // Beside the source, named after it: film.srt, film.en.srt, film.forced.ass.
+    const QFileInfo source(m_input);
+    QStringList files;
+    for (const QFileInfo &f : source.dir().entryInfoList({"*.srt", "*.ass", "*.ssa", "*.vtt"}, QDir::Files, QDir::Name))
+        if (f.completeBaseName() == source.completeBaseName() || f.fileName().startsWith(source.completeBaseName() + "."))
+            files << f.absoluteFilePath();
+    if (!m_pickedSubtitles.isEmpty() && !files.contains(m_pickedSubtitles))
+        files << m_pickedSubtitles;
+    for (const QString &f : files)
+        list.append(QVariantMap{{"value", f}, {"text", QFileInfo(f).fileName()}});
+    list.append(QVariantMap{{"value", "pick"}, {"text", "Choose a file…"}});
+    return list;
+}
+
+void Job::setSubtitleBurn(const QString &value) {
+    if (isActive() || value == "pick")
+        return;
+    if (value != "off" && !value.startsWith("track:")) {
+        const QString suffix = QFileInfo(value).suffix().toLower();
+        if (!QStringList{"srt", "ass", "ssa", "vtt"}.contains(suffix) || !QFileInfo::exists(value))
+            return;
+        if (QFileInfo(value).absolutePath() != QFileInfo(m_input).absolutePath())
+            m_pickedSubtitles = value;
+    }
+    m_subtitleBurn = value;
+    emit subtitlesChanged();
+    emit presetChanged();
+}
+
+// ffmpeg's filter syntax trips on ':', ',', quotes and brackets in a path;
+// a link with a plain name in the cache sidesteps all of it.
+void Job::linkSubtitles() const {
+    const Preset p = runPreset();
+    if (!p.burnsSubtitles())
+        return;
+    const QString target = m_subtitleBurn.startsWith("track:") ? m_input : m_subtitleBurn;
+    QFile::remove(p.burnSubtitles);
+    QFile::link(QFileInfo(target).absoluteFilePath(), p.burnSubtitles);
 }
 
 QString Job::presetProblemText() const {
@@ -515,6 +585,7 @@ void Job::measureLoudness(int stream) {
 }
 
 void Job::encode() {
+    linkSubtitles();
     const Command command = this->command(partialPathFor(m_finalPath), true);
     m_runNotes = command.notes;
     if (!m_fallbackNote.isEmpty())

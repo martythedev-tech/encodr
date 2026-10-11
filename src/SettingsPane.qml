@@ -352,6 +352,43 @@ ScrollView {
                             }
                         }
                     }
+                    // Per file: a text track in the source, or a subtitle file.
+                    Field {
+                        label: "Burn in subtitles"
+                        ColumnLayout {
+                            width: Math.min(340, parent.width)
+                            spacing: 4
+                            ComboBox {
+                                id: subsChoice
+                                Layout.fillWidth: true
+                                implicitHeight: 32
+                                topInset: 0
+                                bottomInset: 0
+                                font.pixelSize: 12
+                                enabled: !root.locked && job !== null
+                                textRole: "text"
+                                valueRole: "value"
+                                model: job ? job.subtitleChoices : []
+                                currentIndex: job ? Math.max(0, indexOfValue(job.subtitleBurn)) : 0
+                                onActivated: {
+                                    if (currentValue === "pick") {
+                                        backend.chooseSubtitles(root.jobIndex);
+                                        currentIndex = Qt.binding(() => job ? Math.max(0, indexOfValue(job.subtitleBurn)) : 0);
+                                    } else {
+                                        job.setSubtitleBurn(currentValue);
+                                    }
+                                }
+                            }
+                            Text {
+                                visible: job !== null && job.subtitleBurn !== "off" && root.p.burnTimecode === true
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                text: "The timecode moves to the top, out of the subtitles' way."
+                                color: theme.dim
+                                font.pixelSize: 11
+                            }
+                        }
+                    }
                     Field {
                         label: "Watermark"
                         TextField {

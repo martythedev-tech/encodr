@@ -47,12 +47,19 @@ struct Preset {
     // Pixels cropped off each edge of the source; set per run from the job
     // (crop belongs to a file, not a preset), not saved.
     int cropLeft = 0, cropTop = 0, cropRight = 0, cropBottom = 0;
+    // Subtitles to burn into the picture, set per run from the job: a path
+    // ffmpeg's filter can take as it is (a link with a plain name), the
+    // subtitle track in it (-1 for a subtitle file), and what to call it.
+    QString burnSubtitles;
+    int burnSubtitleTrack = -1;
+    QString burnSubtitleName;
 
     bool usesVideoEncoder() const { return video == "h264" || video == "hevc"; }
     bool audioOnly() const { return video == "none"; }
     bool copiesVideo() const { return video == "copy"; }
     bool copiesAudio() const { return audio == "copy"; }
     bool crops() const { return cropLeft || cropTop || cropRight || cropBottom; }
+    bool burnsSubtitles() const { return !burnSubtitles.isEmpty(); }
     QVariantMap toVariant() const;
     static Preset fromVariant(const QVariantMap &map);
 };
