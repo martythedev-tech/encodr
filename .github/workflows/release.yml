@@ -98,8 +98,11 @@ jobs:
           sudo apt-get install -y build-essential libgl1-mesa-dev libegl1 libxkbcommon-x11-0 libxcb-cursor0 \
             libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
             libxcb-xinerama0 libxcb-xkb1 libwayland-client0 libwayland-cursor0 libwayland-egl1 \
-            libfontconfig1 libdbus-1-3 patchelf file desktop-file-utils fonts-dejavu-core python3-pip
+            libfontconfig1 libdbus-1-3 patchelf file desktop-file-utils fonts-dejavu-core python3-pip \
+            libpulse0 libva2 libva-drm2 libva-x11-2 libvdpau1
           pip3 install --user aqtinstall
+          # Qt Multimedia (the preview player) links PulseAudio and the
+          # hardware video decoding libraries; the AppImage bundles them.
 
       # The official Qt binaries: newer than any distribution ships, and built
       # for an old enough glibc to run nearly everywhere.
