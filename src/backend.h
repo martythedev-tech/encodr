@@ -23,6 +23,8 @@ class Backend : public QObject {
     Q_PROPERTY(QString defaultPresetId READ defaultPresetId NOTIFY presetsChanged)
     Q_PROPERTY(QString outputMode READ outputMode NOTIFY settingsChanged)
     Q_PROPERTY(QString outputFolder READ outputFolder NOTIFY settingsChanged)
+    // How output files are named, for every conversion (see naming.h).
+    Q_PROPERTY(QString namePattern READ namePattern WRITE setNamePattern NOTIFY settingsChanged)
     Q_PROPERTY(QObject *telemetry READ telemetry CONSTANT)
     Q_PROPERTY(bool running READ running NOTIFY queueChanged)
     Q_PROPERTY(bool paused READ paused NOTIFY queueChanged)
@@ -55,6 +57,8 @@ public:
     QString defaultPresetId() const { return m_defaultPreset; }
     QString outputMode() const { return m_outputMode; }
     QString outputFolder() const { return m_outputFolder; }
+    QString namePattern() const { return m_namePattern; }
+    void setNamePattern(const QString &pattern);
     QObject *telemetry() const { return m_telemetry; }
     bool running() const { return m_running; }
     bool paused() const;
@@ -152,6 +156,7 @@ private:
     QString m_defaultPreset = "review";
     QString m_outputMode = "beside";   // "beside" the source when writable, or "folder"
     QString m_outputFolder;
+    QString m_namePattern;
     bool m_running = false;
     QDBusUnixFileDescriptor m_inhibit;
     QString m_notice;

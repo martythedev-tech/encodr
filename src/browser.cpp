@@ -1,4 +1,5 @@
 #include "browser.h"
+#include "naming.h"
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -222,6 +223,13 @@ QStringList Browser::mediaIn(const QVariantList &paths) const {
     return out;
 }
 
+void Browser::setOutputPatterns(const QStringList &patterns) {
+    if (patterns == m_patterns)
+        return;
+    m_patterns = patterns;
+    markConverted();
+}
+
 void Browser::setOutputSuffixes(const QStringList &suffixes) {
     m_suffixes = suffixes;
     markConverted();
@@ -297,30 +305,33 @@ void Browser::loadCached(Entry &e) const {
 }
 
 void Browser::markConverted() {
-    QSet<QString> here;
+    QStringList here;
     for (const Entry &e : std::as_const(m_entries))
-        here.insert(e.name);
+        here << e.name;
+    // Each output folder is listed once, not once per file.
+    QList<QStringList> elsewhere;
+    for (const QString &folder : std::as_const(m_outputFolders))
+        elsewhere << (QDir(folder) == QDir(m_path) ? QStringList() : QDir(folder).entryList(QDir::Files));
+    const QStringList patterns = m_patterns.isEmpty() ? QStringList{naming::kDefault} : m_patterns;
     for (int i = 0; i < m_entries.size(); ++i) {
         Entry &e = m_entries[i];
         if (!e.isMedia)
             continue;
         const QString base = QFileInfo(e.name).completeBaseName();
         QString found;
-        for (const QString &suffix : std::as_const(m_suffixes)) {
-            const QString stem = base + suffix;
+        for (const QString &pattern : patterns) {
+            const QRegularExpression output = naming::matcher(pattern, base, m_suffixes);
             for (const QString &name : std::as_const(here))
-                if (name != e.name && name.startsWith(stem) && name.mid(stem.size()).contains('.')
-                    && !name.mid(stem.size()).startsWith('_')) {
+                if (name != e.name && output.match(name).hasMatch()) {
                     found = name;
                     break;
                 }
-            for (int f = 0; found.isEmpty() && f < m_outputFolders.size(); ++f) {
-                if (QDir(m_outputFolders[f]) == QDir(m_path))
-                    continue;
-                const auto names = QDir(m_outputFolders[f]).entryList({stem + ".*", stem + " (*).*"}, QDir::Files);
-                if (!names.isEmpty())
-                    found = names.first();
-            }
+            for (qsizetype f = 0; found.isEmpty() && f < elsewhere.size(); ++f)
+                for (const QString &name : std::as_const(elsewhere[f]))
+                    if (output.match(name).hasMatch()) {
+                        found = name;
+                        break;
+                    }
             if (!found.isEmpty())
                 break;
         }

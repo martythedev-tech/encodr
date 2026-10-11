@@ -52,6 +52,9 @@ public:
     // Output-name suffixes ("_review", "_proxy"…) that mark a file as converted,
     // and folders other than the source's that outputs may land in.
     void setOutputSuffixes(const QStringList &suffixes);
+    // The naming patterns outputs may have been written under (the current
+    // one and the default), see naming.h.
+    void setOutputPatterns(const QStringList &patterns);
     void setOutputFolders(const QStringList &folders);
 
     static QString cacheKey(const QString &path, qint64 size, qint64 modifiedMs);
@@ -93,6 +96,7 @@ private:
     QVector<Entry> m_entries;
     QVariantList m_places;
     QStringList m_suffixes;
+    QStringList m_patterns;
     QStringList m_outputFolders;
     QFileSystemWatcher m_watcher;
     QTimer m_relist;

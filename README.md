@@ -83,6 +83,11 @@ below; and the source details beside live stats. The layout is remembered.
 - **Safe with your files.** Originals are never touched. Output is written to a
   hidden partial file and renamed only when it's complete, so a failed or
   stopped conversion leaves nothing behind. Existing files are never overwritten.
+- **Name outputs your way.** One pattern for every conversion, under
+  Settings → Output → File name: the original's name, the preset's suffix or
+  id, the date and time, the picture height, and a running number
+  (`{date}_{name}{suffix}` gives `2026-10-11_CLIP0001_review.mp4`). The
+  browser still ticks originals that have an output.
 - **The exact ffmpeg command**, ready to copy.
 
 ## Known limitations

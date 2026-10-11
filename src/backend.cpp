@@ -1,4 +1,5 @@
 #include "backend.h"
+#include "naming.h"
 
 #include <QThread>
 
@@ -223,6 +224,7 @@ void Backend::addJob(const QString &path) {
     auto *job = new Job(m_nextId++, path, this);
     job->setPreset(presetById(m_defaultPreset));
     job->setOutputFolder(folderFor(path));
+    job->setNamePattern(m_namePattern);
     connect(job, &Job::stateChanged, this, [this, job] {
         if (job->state() == "ready" && m_running)
             startNext();
@@ -285,6 +287,18 @@ void Backend::setHardware(Hardware *hardware) {
 
 QObject *Backend::hardwareObject() const {
     return m_hardware;
+}
+
+void Backend::setNamePattern(const QString &pattern) {
+    const QString clean = naming::clean(pattern);
+    if (clean == m_namePattern)
+        return;
+    m_namePattern = clean;
+    // Finished jobs keep the name they were written under.
+    for (Job *job : m_jobs)
+        job->setNamePattern(m_namePattern);
+    saveConfig();
+    emit settingsChanged();
 }
 
 void Backend::setGpuEnabled(bool on) {
@@ -745,6 +759,7 @@ void Backend::loadConfig() {
     m_defaultPreset = settings.value("defaultPreset").toString(m_defaultPreset);
     m_outputMode = settings.value("outputMode").toString(m_outputMode);
     m_outputFolder = settings.value("outputFolder").toString();
+    m_namePattern = naming::clean(settings.value("namePattern").toString(naming::kDefault));
     m_gpuEnabled = settings.value("gpuEncoding").toBool(false);
     m_parallel = settings.value("parallel").toInt(0);
 
@@ -761,6 +776,7 @@ void Backend::loadConfig() {
 void Backend::saveConfig() const {
     writeJson(m_configDir + "/settings.json", QJsonObject{
         {"defaultPreset", m_defaultPreset}, {"outputMode", m_outputMode}, {"outputFolder", m_outputFolder},
+        {"namePattern", m_namePattern},
         {"gpuEncoding", m_gpuEnabled}, {"parallel", m_parallel}});
 }
 

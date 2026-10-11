@@ -547,6 +547,48 @@ ScrollView {
                         UiButton { text: "Choose folder…"; onClicked: backend.chooseOutputFolder() }
                         UiButton { text: "Next to the originals"; kind: "ghost"; visible: backend.outputMode === "folder"; onClicked: backend.useSourceFolders() }
                     }
+                    Field {
+                        label: "File name"
+                        ColumnLayout {
+                            width: parent.width
+                            spacing: 4
+                            ComboBox {
+                                id: nameBox
+                                Layout.fillWidth: true
+                                Layout.maximumWidth: 340
+                                implicitHeight: 32
+                                topInset: 0
+                                bottomInset: 0
+                                font.pixelSize: 12
+                                editable: true
+                                // For every conversion, not just this file.
+                                model: ["{name}{suffix}", "{date}_{name}{suffix}", "{name}{suffix}_{n}",
+                                        "{name}_{height}p{suffix}", "{name}_{preset}_{date}"]
+                                function sync() { editText = backend.namePattern; }
+                                Component.onCompleted: sync()
+                                Connections { target: backend; function onSettingsChanged() { nameBox.sync(); } }
+                                onActivated: function (index) { backend.namePattern = textAt(index); }
+                                Connections {
+                                    target: nameBox.contentItem
+                                    function onEditingFinished() {
+                                        backend.namePattern = nameBox.editText;
+                                        nameBox.sync();    // shows the pattern as cleaned up
+                                    }
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                color: theme.dim
+                                font.pixelSize: 11
+                                text: "Every file is named this way. Parts: {name} the original's name, {suffix} the preset's (_review), "
+                                      + "{preset} its id, {date} " + Qt.formatDateTime(new Date(), "yyyy-MM-dd") + ", {time} "
+                                      + Qt.formatDateTime(new Date(), "HHmm") + ", {height} 1080, {n} 001, 002… "
+                                      + "(the first number free). {name} is always in it. Without {n}, a name "
+                                      + "that's taken gets \" (2)\"."
+                            }
+                        }
+                    }
                 }
 
                 // Settings for this machine, not for the file: they apply to every job.

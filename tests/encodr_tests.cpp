@@ -17,6 +17,7 @@
 #include "hardware.h"
 #include "appmenu.h"
 #include "analysis.h"
+#include "naming.h"
 
 #include <atomic>
 #include <thread>
@@ -318,6 +319,74 @@ private slots:
         QCOMPARE(Job::partialPathFor(path), dir.filePath(".clip_review.encodr-partial.mp4"));
     }
 
+    void namingPatterns() {
+        const QDateTime when(QDate(2026, 10, 11), QTime(15, 30));
+        naming::Parts parts{"CLIP0001", "_review", "review", when, 1080};
+        QCOMPARE(naming::expand(naming::kDefault, parts), QString("CLIP0001_review"));
+        QCOMPARE(naming::expand("{date}_{name}{suffix}", parts), QString("2026-10-11_CLIP0001_review"));
+        QCOMPARE(naming::expand("{name}_{height}p_{time}", parts), QString("CLIP0001_1080p_1530"));
+        QCOMPARE(naming::expand("{name}{suffix}_{n}", parts, 7), QString("CLIP0001_review_007"));
+        // Audio has no height: the part goes with its "p" and one separator.
+        naming::Parts audio = parts;
+        audio.height = 0;
+        QCOMPARE(naming::expand("{name}_{height}p{suffix}", audio), QString("CLIP0001_review"));
+        QCOMPARE(naming::expand("{height}p_{name}", audio), QString("CLIP0001"));
+        // No folders, and always the source's name in it.
+        QCOMPARE(naming::clean("../{name}/x"), QString("..{name}x"));
+        QCOMPARE(naming::clean("{date}"), QString("{name}_{date}"));
+        QCOMPARE(naming::clean("  "), naming::kDefault);
+        // Braces in the source's own name stay as they are.
+        parts.name = "take {n}";
+        QCOMPARE(naming::expand("{name}{suffix}_{n}", parts, 1), QString("take {n}_review_001"));
+
+        // {n} takes the first free number.
+        QTemporaryDir dir;
+        parts.name = "CLIP0001";
+        QCOMPARE(naming::pathFor(dir.path(), "{name}{suffix}_{n}", parts, "mp4"), dir.filePath("CLIP0001_review_001.mp4"));
+        writeFile(dir.filePath("CLIP0001_review_001.mp4"), "x");
+        QCOMPARE(naming::pathFor(dir.path(), "{name}{suffix}_{n}", parts, "mp4"), dir.filePath("CLIP0001_review_002.mp4"));
+
+        // Recognising outputs, for the browser's ticks.
+        const QStringList suffixes{"_review", "_review_tc", "_proxy"};
+        auto is = [&](const QString &pattern, const QString &file) {
+            return naming::matcher(pattern, "CLIP0001", suffixes).match(file).hasMatch();
+        };
+        QVERIFY(is(naming::kDefault, "CLIP0001_review.mp4"));
+        QVERIFY(is(naming::kDefault, "CLIP0001_review_tc (2).mp4"));
+        QVERIFY(!is(naming::kDefault, "CLIP0001_review_extra.mp4"));
+        QVERIFY(!is(naming::kDefault, "CLIP0001.mov"));
+        QVERIFY(!is(naming::kDefault, "CLIP00012_review.mp4"));
+        QVERIFY(is("{date}_{name}{suffix}", "2026-10-11_CLIP0001_proxy.mov"));
+        QVERIFY(is("{name}{suffix}_{n}", "CLIP0001_review_012.mp4"));
+        QVERIFY(is("{name}_{height}p{suffix}", "CLIP0001_720p_review.mp4"));
+        QVERIFY(is("{name}_{height}p{suffix}", "CLIP0001_review.wav"));    // audio: no height
+        QVERIFY(is("{name}_{preset}_{date}", "CLIP0001_prores-422_2026-10-11.mov"));
+    }
+
+    void jobsUseTheNamePattern() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        const QString source = dir.filePath("bars.mp4");
+        QProcess make;
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=25:duration=1",
+                              "-c:v", "libx264", "-pix_fmt", "yuv420p", source});
+        QVERIFY(make.waitForFinished(60000));
+        QCOMPARE(make.exitCode(), 0);
+        Job job(1, source);
+        job.setPreset(builtinPresets()[2]);    // share: up to 1080p
+        job.setOutputFolder(dir.path());
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        QCOMPARE(job.outputPath(), dir.filePath("bars_share.mp4"));    // no pattern: the default
+        QSignalSpy changed(&job, &Job::presetChanged);
+        job.setNamePattern("{name}_{height}p_{n}");
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(job.outputPath(), dir.filePath("bars_1080p_001.mp4"));
+        job.setCropMargins(0, 140, 0, 140);    // the height follows the crop
+        QCOMPARE(job.outputPath(), dir.filePath("bars_800p_001.mp4"));
+    }
+
     void telemetryReadsFakeMachine() {
         QTemporaryDir sys, proc;
         writeFile(proc.filePath("stat"), "cpu  100 0 100 800 0 0 0 0 0 0\ncpu0 50 0 50 400 0 0 0 0 0 0\ncpu1 50 0 50 400 0 0 0 0 0 0\n");
@@ -481,6 +550,23 @@ private slots:
         again.open(dir.path());
         QVERIFY(again.data(again.index(2), Browser::ReadRole).toBool());    // straight from the cache
         QCOMPARE(again.pending(), 0);
+
+        // Outputs named by another pattern are recognised too.
+        writeFile(dir.filePath("2026-10-11_clip_proxy.mov.part"), "x");    // not a whole name
+        browser.setOutputPatterns({"{date}_{name}{suffix}", naming::kDefault});
+        QCOMPARE(at(2, Browser::ConvertedNameRole).toString(), QString("clip_review.mp4"));    // the default still counts
+        QFile::remove(dir.filePath("clip_review.mp4"));
+        writeFile(dir.filePath("2026-10-11_clip_proxy.mov"), "x");
+        browser.refresh();
+        int clip = -1;
+        for (int r = 0; r < browser.rowCount(); ++r)
+            if (at(r, Browser::NameRole).toString() == "clip.mov")
+                clip = r;
+        QCOMPARE(at(clip, Browser::ConvertedNameRole).toString(), QString("2026-10-11_clip_proxy.mov"));
+        QFile::remove(dir.filePath("2026-10-11_clip_proxy.mov"));
+        QFile::remove(dir.filePath("2026-10-11_clip_proxy.mov.part"));
+        writeFile(dir.filePath("clip_review.mp4"), "not really a video");
+        browser.refresh();
 
         // A new output appearing marks its original.
         QVERIFY(!at(3, Browser::ConvertedRole).toBool());

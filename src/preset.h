@@ -137,6 +137,9 @@ Command buildCommand(const Preset &preset, const MediaInfo &info, const QString 
 QStringList outputStillArguments(const Preset &preset, const MediaInfo &info, const QString &input, double at,
                                  const QString &jpeg, int height = 1080);
 
+// The output picture's height after crop and size limit; 0 without a picture.
+int outputHeight(const Preset &preset, const MediaInfo &info);
+
 // Input options that relabel blank colour tags in the bitstream, if needed.
 QStringList colourFixArguments(const MediaInfo &info);
 

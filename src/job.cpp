@@ -1,4 +1,5 @@
 #include "job.h"
+#include "naming.h"
 
 #include <algorithm>
 
@@ -96,11 +97,27 @@ void Job::setPreset(const Preset &preset) {
     emit presetChanged();
 }
 
+void Job::setNamePattern(const QString &pattern) {
+    if (pattern == m_namePattern || isActive())
+        return;
+    m_namePattern = pattern;
+    emit presetChanged();
+}
+
 QString Job::outputPath() const {
     if (!m_finalPath.isEmpty())
         return m_finalPath;
-    const QString base = QFileInfo(m_input).completeBaseName() + m_preset.suffix;
-    return uniquePath(QDir(m_outputFolder).filePath(base + "." + extensionFor(m_preset, m_info)));
+    const Preset p = runPreset();
+    naming::Parts parts;
+    parts.name = QFileInfo(m_input).completeBaseName();
+    parts.suffix = p.suffix;
+    parts.preset = p.id;
+    parts.when = QDateTime::currentDateTime();
+    parts.height = outputHeight(p, m_info);
+    const QString pattern = m_namePattern.isEmpty() ? naming::kDefault : m_namePattern;
+    // Numbered names pick a free number themselves.
+    const QString path = naming::pathFor(m_outputFolder, pattern, parts, extensionFor(m_preset, m_info));
+    return naming::numbered(naming::clean(pattern)) ? path : uniquePath(path);
 }
 
 Preset Job::runPreset() const {

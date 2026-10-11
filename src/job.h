@@ -126,6 +126,8 @@ public:
     QString outputFolder() const { return m_outputFolder; }
     void setOutputFolder(const QString &folder);
     QString outputPath() const;
+    // The naming pattern (see naming.h); set by the backend for every job.
+    void setNamePattern(const QString &pattern);
     QString commandLine() const;
     QStringList notes() const;
 
@@ -279,6 +281,7 @@ private:
     QString m_mediainfo;
     Preset m_preset;
     QString m_outputFolder;
+    QString m_namePattern;
     QString m_finalPath;      // fixed when the run starts
     QStringList m_runNotes;
     QString m_engine = "cpu";

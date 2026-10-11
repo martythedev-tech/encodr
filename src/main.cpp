@@ -18,6 +18,7 @@
 #include "appmenu.h"
 #include "backend.h"
 #include "browser.h"
+#include "naming.h"
 #include "hardware.h"
 #include "portalfilepicker.h"
 #include "theme.h"
@@ -71,13 +72,15 @@ int main(int argc, char *argv[]) {
     hardware.detect();
 
     // The browser marks files that already have an output: anything named
-    // with a preset's suffix, beside the original or in Encodr's folders.
+    // the way Encodr names outputs (the pattern now, or the default), beside
+    // the original or in Encodr's folders.
     Browser browser;
     auto syncOutputs = [&] {
         QStringList suffixes;
         for (const QVariant &p : backend.presets())
             suffixes << p.toMap().value("suffix").toString();
         browser.setOutputSuffixes(suffixes);
+        browser.setOutputPatterns({backend.namePattern(), naming::kDefault});
         QStringList folders{QStandardPaths::writableLocation(QStandardPaths::MoviesLocation) + "/Encodr"};
         if (!backend.outputFolder().isEmpty())
             folders << backend.outputFolder();

@@ -576,6 +576,17 @@ QStringList videoChain(const Preset &p, const MediaInfo &info, double start, QSt
 }
 }
 
+int outputHeight(const Preset &p, const MediaInfo &info) {
+    if (!info.hasVideo || p.audioOnly())
+        return 0;
+    if (p.copiesVideo())
+        return info.height;
+    int height = info.height - (p.crops() ? p.cropTop + p.cropBottom : 0);
+    if (p.maxHeight > 0 && height > p.maxHeight)
+        height = p.maxHeight;
+    return height;
+}
+
 QStringList outputStillArguments(const Preset &p, const MediaInfo &info, const QString &input, double at,
                                  const QString &jpeg, int height) {
     if (!info.hasVideo || p.audioOnly() || p.copiesVideo())
