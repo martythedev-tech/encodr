@@ -36,12 +36,22 @@ jobs:
     env:
       PACKAGER: martythedev-tech <martythedev@gmail.com>
     steps:
+      # Omarchy installs from its own mirror, which runs behind Arch. A package
+      # built against Arch's newest Qt won't start there ("Qt_6.12 not
+      # found"), while one built against Omarchy's older Qt runs on both. So
+      # the x86_64 build uses Omarchy's mirror, -Syuu moving the image's own
+      # packages back to it too.
+      - name: Build against Omarchy's mirror
+        if: matrix.arch == 'x86_64'
+        run: echo 'Server = https://stable-mirror.omarchy.org/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+
       # A font is needed for the burned-in timecode test; desktops always have one.
       # Containers can't apply pacman's download sandbox (Landlock), so it's off here.
       - name: Install build and test dependencies
         run: |
           grep -q '^DisableSandbox' /etc/pacman.conf || sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
-          pacman -Syu --noconfirm --needed git qt6-base qt6-declarative qt6-svg qt6-wayland qt6-multimedia qt6-multimedia-ffmpeg ffmpeg xdg-desktop-portal libnotify ttf-dejavu
+          pacman -Syuu --noconfirm --needed git qt6-base qt6-declarative qt6-svg qt6-wayland qt6-multimedia qt6-multimedia-ffmpeg ffmpeg xdg-desktop-portal libnotify ttf-dejavu
+          pacman -Q qt6-base
 
       - uses: actions/checkout@v4
 
