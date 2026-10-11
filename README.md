@@ -50,9 +50,10 @@ below; and the source details beside live stats. The layout is remembered.
   subtitles come along (as MP4 text, or exactly as they are in MKV).
 - **Crop.** Remove black bars (found automatically), crop to 16:9, 1:1, 4:5 or
   9:16 for social media, or set the edges by hand; the player shows what's kept.
-- **Burn in subtitles** from a text track in the file, a subtitle file beside
-  it (`film.srt`, `film.en.ass`) or one you choose. Trimmed copies stay in
-  sync, and burned-in timecode moves to the top to make room.
+- **Burn in subtitles** from a track in the file, text or picture (Blu-ray
+  PGS, DVD), a subtitle file beside it (`film.srt`, `film.en.ass`) or one you
+  choose. Trimmed copies stay in sync, and burned-in timecode moves to the top
+  to make room.
 - **A LUT for log footage.** Apply a `.cube` LUT (S-Log, V-Log, C-Log…) so
   review copies look right; the copy is labelled Rec. 709.
 - **A logo.** Put an image (PNG, JPEG, WebP) in a corner or the centre, sized
@@ -98,8 +99,9 @@ below; and the source details beside live stats. The layout is remembered.
   shows the processed frame while paused; playing shows the source. To watch
   the processed picture move, use the live preview during the conversion or
   play the finished file.
-- **Picture subtitles** (Blu-ray PGS, DVD) are kept in MKV copies but can't be
-  burned in yet; text subtitles can.
+- **Picture subtitles** (Blu-ray PGS, DVD) are drawn for the whole frame, so
+  they go on before a crop: any placed in the cropped-off bars are cut. A copy
+  trimmed to start in the middle of one shows it a few frames late.
 - **GPU encoding** can make H.264 files up to a quarter larger than the
   CPU's at the same quality, and is still marked experimental. Quick Sync needs an Intel GPU
   from 2020 or later (older ones use VA-API instead).

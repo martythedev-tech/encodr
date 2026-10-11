@@ -24,6 +24,9 @@ struct SubtitleTrack {
     QString codec;          // subrip, ass, mov_text, hdmv_pgs_subtitle…
     QString language;
     QString title;
+    // The canvas a picture subtitle is drawn on (0 when unknown or text).
+    int width = 0;
+    int height = 0;
     // Text can be turned into any container's subtitle format; pictures
     // (Blu-ray PGS, DVD) only fit containers that carry them as they are.
     bool isText() const;

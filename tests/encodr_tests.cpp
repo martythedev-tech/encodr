@@ -56,6 +56,80 @@ void writeFile(const QString &path, const QByteArray &bytes) {
     QVERIFY(f.open(QIODevice::WriteOnly));
     f.write(bytes);
 }
+
+// A Blu-ray (PGS) subtitle stream: a white 400×60 box at 440,600 on a
+// 1280×720 canvas from 1 s to 4 s. ffmpeg can't make picture subtitles
+// from text, so the tests write the segments themselves.
+QByteArray pgsBox() {
+    auto u16 = [](QByteArray &b, int v) { b.append(char(v >> 8)).append(char(v & 0xff)); };
+    auto segment = [&](quint32 pts, quint8 type, const QByteArray &data) {
+        QByteArray b("PG");
+        for (int shift : {24, 16, 8, 0})
+            b.append(char((pts >> shift) & 0xff));
+        b.append(4, '\0');    // decoding time, unused
+        b.append(char(type));
+        u16(b, int(data.size()));
+        return b + data;
+    };
+    const int x = 440, y = 600, w = 400, h = 60;
+    auto display = [&](quint32 pts, bool show, int number) {
+        QByteArray pcs, wds, out;
+        u16(pcs, 1280); u16(pcs, 720);
+        pcs.append(char(0x10));
+        u16(pcs, number);
+        pcs.append(char(show ? 0x80 : 0x00)).append('\0').append('\0').append(char(show ? 1 : 0));
+        if (show) {
+            u16(pcs, 0);
+            pcs.append('\0').append('\0');
+            u16(pcs, x); u16(pcs, y);
+        }
+        wds.append(char(1)).append('\0');
+        u16(wds, x); u16(wds, y); u16(wds, w); u16(wds, h);
+        out += segment(pts, 0x16, pcs) + segment(pts, 0x17, wds);
+        if (show) {
+            // Palette: 0 transparent, 1 white.
+            out += segment(pts, 0x14, QByteArray::fromHex("0000" "00108080" "00" "01eb8080ff"));
+            QByteArray rle, ods;
+            for (int line = 0; line < h; ++line)
+                rle += QByteArray::fromHex("00") + char(0xC0 | (w >> 8)) + char(w & 0xff) + char(1) + QByteArray(2, '\0');
+            u16(ods, 0);
+            ods.append('\0').append(char(0xC0));
+            const int length = int(rle.size()) + 4;
+            ods.append(char(length >> 16)).append(char((length >> 8) & 0xff)).append(char(length & 0xff));
+            u16(ods, w); u16(ods, h);
+            out += segment(pts, 0x15, ods + rle);
+        }
+        return out + segment(pts, 0x80, {});
+    };
+    return display(90000, true, 0) + display(4 * 90000, false, 1);
+}
+
+// The average brightness (0-255) of the box's area at `seconds`.
+int boxBrightness(const QString &file, double seconds) {
+    QProcess p;
+    QStringList a{"-nostdin", "-loglevel", "error"};
+    if (seconds > 0)
+        a << "-ss" << QString::number(seconds);    // not on a still image: it can't seek
+    p.start("ffmpeg", a + QStringList{"-i", file, "-frames:v", "1",
+                       "-vf", "scale=1280:720,crop=400:60:440:600,scale=1:1:flags=area,format=gray", "-f", "rawvideo", "-"});
+    p.waitForFinished(30000);
+    const QByteArray out = p.readAllStandardOutput();
+    return out.isEmpty() ? -1 : quint8(out.at(0));
+}
+
+// An H.264 MKV with the PGS box as its only subtitle track.
+bool makePgsSource(const QString &dir, const QString &mkv) {
+    QFile sup(dir + "/box.sup");
+    if (!sup.open(QIODevice::WriteOnly))
+        return false;
+    sup.write(pgsBox());
+    sup.close();
+    QProcess make;
+    make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0x204060:size=1280x720:rate=25:duration=6",
+                          "-i", sup.fileName(), "-map", "0", "-map", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                          "-c:s", "copy", "-copyts", mkv});    // keep the subtitle at 1 s, not moved to 0
+    return make.waitForFinished(60000) && make.exitCode() == 0;
+}
 }
 
 class EncodrTests : public QObject {
@@ -444,6 +518,70 @@ private slots:
             if (p.id == "rewrap-mp4")
                 job.setPreset(p);
         QVERIFY(job.suggestion().isEmpty());
+    }
+
+    void pictureSubtitlesBurnIn() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        const QString source = dir.filePath("film.mkv");
+        QVERIFY(makePgsSource(dir.path(), source));
+        QCOMPARE(boxBrightness(source, 2), 49);    // the source's picture, without subtitles
+
+        Job job(1, source);
+        job.setPreset(builtinPresets().first());    // review: H.264 MP4
+        job.setOutputFolder(dir.filePath("out"));
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        QCOMPARE(job.info().subtitles.first().width, 1280);
+        bool listed = false;
+        for (const QVariant &c : job.subtitleChoices())
+            listed |= c.toMap().value("text").toString() == "Track 1 · Blu-ray (PGS) pictures";
+        QVERIFY(listed);
+
+        job.setSubtitleBurn("track:0");
+        QVERIFY(job.runPreset().burnSubtitlePicture);
+        const QString line = job.commandLine();
+        QVERIFY2(line.contains("null[sbv];[sbv][0:s:0]overlay=eof_action=pass:format=auto"), qPrintable(line));
+        QVERIFY(!line.contains("subtitles=filename"));
+        QVERIFY(job.notes().contains("Subtitles burned in from subtitle track 1"));
+
+        // The still in the middle of the subtitle: the preroll catches it.
+        job.showOutputAt(2.5);
+        QTRY_VERIFY_WITH_TIMEOUT(job.outputStillStamp() == 1 && !job.outputStillBusy(), 30000);
+        QVERIFY2(job.outputStillError().isEmpty(), qPrintable(job.outputStillError()));
+        QVERIFY(boxBrightness(job.outputStill(), 0) > 200);
+
+        QSignalSpy finished(&job, &Job::finished);
+        QVERIFY(job.start());
+        QVERIFY(finished.wait(120000));
+        QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+        const QString out = job.outputPath();
+        QVERIFY(boxBrightness(out, 2) > 200);      // burned in while it's on screen
+        QVERIFY(boxBrightness(out, 0.5) < 80);     // and not before
+        QVERIFY(boxBrightness(out, 5) < 80);       // or after
+    }
+
+    void pictureSubtitlesScaleToTheVideo() {
+        MediaInfo info = parseProbe(kKiPro, "/x/in.mov");    // 1280×720
+        SubtitleTrack dvd;
+        dvd.codec = "dvd_subtitle";
+        dvd.width = 720;
+        dvd.height = 480;
+        info.subtitles = {dvd};
+        Preset p = builtinPresets()[2];
+        p.burnSubtitles = "/c/src.mov";
+        p.burnSubtitleTrack = 0;
+        p.burnSubtitlePicture = true;
+        p.burnSubtitleName = "subtitle track 1";
+        p.cropTop = 40;
+        p.cropBottom = 40;
+        const Command cmd = buildCommand(p, info, "/x/in.mov", "/y/out.mp4");
+        const QString joined = cmd.arguments.join(' ');
+        // Drawn on the picture before the crop, from a canvas stretched to it.
+        QVERIFY2(joined.contains("null[sbv];[0:s:0]scale=1280:720[sbs];[sbv][sbs]overlay=eof_action=pass:format=auto,crop=1280:640:0:40"),
+                 qPrintable(joined));
+        QVERIFY(cmd.notes.contains("Picture subtitles go on before the crop: any drawn in the cropped-off part are cut"));
     }
 
     void telemetryReadsFakeMachine() {

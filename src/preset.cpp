@@ -246,17 +246,18 @@ const QHash<QString, QStringList> kCopyAudio{
     {"flac", {"flac"}},
     {"wav", {}},
 };
+}
 
 QString codecName(const QString &codec) {
     static const QHash<QString, QString> names{
         {"h264", "H.264"}, {"hevc", "HEVC"}, {"prores", "ProRes"}, {"dnxhd", "DNxHD/DNxHR"}, {"vp9", "VP9"},
         {"vp8", "VP8"}, {"av1", "AV1"}, {"mpeg2video", "MPEG-2"}, {"mjpeg", "Motion JPEG"}, {"aac", "AAC"},
         {"ac3", "AC-3"}, {"eac3", "E-AC-3"}, {"truehd", "Dolby TrueHD"}, {"dts", "DTS"}, {"opus", "Opus"},
-        {"vorbis", "Vorbis"}, {"flac", "FLAC"}, {"alac", "ALAC"}, {"mp3", "MP3"}};
+        {"vorbis", "Vorbis"}, {"flac", "FLAC"}, {"alac", "ALAC"}, {"mp3", "MP3"},
+        {"hdmv_pgs_subtitle", "Blu-ray (PGS)"}, {"dvd_subtitle", "DVD"}, {"dvb_subtitle", "DVB"}};
     if (codec.startsWith("pcm_"))
         return "uncompressed (PCM)";
     return names.value(codec, codec);
-}
 }
 
 QString sourceProblem(const Preset &p, const MediaInfo &info) {
@@ -508,6 +509,24 @@ QStringList videoChain(const Preset &p, const MediaInfo &info, double start, QSt
         chain << "lut3d=file=" + lut + ":interp=tetrahedral";
         notes << "LUT applied: " + QFileInfo(p.lut.isEmpty() ? lut : p.lut).fileName();
     }
+    // Picture subtitles are drawn for the source's frame, so they go on
+    // before the crop and scaling and follow the picture through them (but
+    // after the LUT, which would tint them). The source's own subtitle
+    // stream joins the line through a labelled detour, as the logo does.
+    if (p.burnsSubtitles() && p.burnSubtitlePicture) {
+        QString canvas;
+        for (const SubtitleTrack &t : info.subtitles)
+            if (t.index == p.burnSubtitleTrack && t.width > 0 && t.height > 0
+                && (t.width != info.width || t.height != info.height))
+                canvas = QString("scale=%1:%2").arg(info.width).arg(info.height);
+        chain << (canvas.isEmpty()
+                      ? QString("null[sbv];[sbv][0:s:%1]overlay=eof_action=pass:format=auto").arg(p.burnSubtitleTrack)
+                      : QString("null[sbv];[0:s:%1]%2[sbs];[sbv][sbs]overlay=eof_action=pass:format=auto")
+                            .arg(p.burnSubtitleTrack).arg(canvas));
+        notes << "Subtitles burned in from " + p.burnSubtitleName;
+        if (p.crops())
+            notes << "Picture subtitles go on before the crop: any drawn in the cropped-off part are cut";
+    }
     // Crop before scaling, so a size limit and anything burned in fit the
     // picture that's kept.
     int height = info.height;
@@ -538,7 +557,7 @@ QStringList videoChain(const Preset &p, const MediaInfo &info, double start, QSt
         notes << QString("Logo %1 at %2% of the height").arg(QFileInfo(p.logo.isEmpty() ? logo : p.logo).fileName())
                          .arg(p.logoSize);
     }
-    if (p.burnsSubtitles()) {
+    if (p.burnsSubtitles() && !p.burnSubtitlePicture) {
         // After crop and scale, so the text is drawn sharp at the output
         // size. The filter reads the subtitles on the source's own clock,
         // while a trimmed input starts at zero: shift the picture onto
@@ -627,13 +646,20 @@ QStringList outputStillArguments(const Preset &p, const MediaInfo &info, const Q
     // The input starts at the frame, as a trimmed run's does at its in point,
     // so burned-in subtitles and timecode read the same clock as the encode.
     at = std::max(0.0, at);
+    // A picture subtitle is one packet when it appears; seeking straight to
+    // the frame would skip the one on screen. Start a little earlier and
+    // drop the frames before it after the filters.
+    const double preroll = p.burnsSubtitles() && p.burnSubtitlePicture ? std::min(at, 5.0) : 0;
+    const double from = at - preroll;
     QStringList notes;
-    QStringList chain = videoChain(p, info, at, notes);
+    QStringList chain = videoChain(p, info, from, notes);
     chain << QString("scale=-2:'min(ih,%1)':flags=bicubic:out_range=full,format=yuvj420p").arg(height);
     QStringList a{"-nostdin", "-hide_banner", "-y", "-loglevel", "error"};
-    a << colourFixArguments(info) << "-ss" << QString::number(at, 'f', 3) << "-i" << input
-      << "-filter_complex" << "[0:v:0]" + chain.join(',') + "[o]" << "-map" << "[o]"
-      << "-frames:v" << "1" << "-q:v" << "3" << "-update" << "1" << jpeg;
+    a << colourFixArguments(info) << "-ss" << QString::number(from, 'f', 3) << "-i" << input
+      << "-filter_complex" << "[0:v:0]" + chain.join(',') + "[o]" << "-map" << "[o]";
+    if (preroll > 0)
+        a << "-ss" << QString::number(preroll, 'f', 3);
+    a << "-frames:v" << "1" << "-q:v" << "3" << "-update" << "1" << jpeg;
     return a;
 }
 

@@ -61,6 +61,9 @@ struct Preset {
     QString burnSubtitles;
     int burnSubtitleTrack = -1;
     QString burnSubtitleName;
+    // The burned track is pictures (Blu-ray PGS, DVD): overlaid straight from
+    // the source's stream, not drawn by libass.
+    bool burnSubtitlePicture = false;
     // Plain-named links to the LUT and logo for ffmpeg's filters; set per run.
     QString lutFile;
     QString logoFile;
@@ -144,6 +147,9 @@ QString rewrapReason(const MediaInfo &info, const QString &path);
 
 // The output picture's height after crop and size limit; 0 without a picture.
 int outputHeight(const Preset &preset, const MediaInfo &info);
+
+// A codec's everyday name: H.264, AAC, Blu-ray (PGS)…
+QString codecName(const QString &codec);
 
 // Input options that relabel blank colour tags in the bitstream, if needed.
 QStringList colourFixArguments(const MediaInfo &info);

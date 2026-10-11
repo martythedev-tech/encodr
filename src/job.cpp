@@ -131,6 +131,9 @@ Preset Job::runPreset() const {
         // si= counts subtitle streams only, as the track number does.
         p.burnSubtitles = m_subtitleLink + "-source." + QFileInfo(m_input).suffix().toLower();
         p.burnSubtitleTrack = track;
+        for (const SubtitleTrack &t : m_info.subtitles)
+            if (t.index == track)
+                p.burnSubtitlePicture = !t.isText();
         QString name = QString("subtitle track %1").arg(track + 1);
         for (const SubtitleTrack &t : m_info.subtitles)
             if (t.index == track && !t.language.isEmpty() && t.language != "und")
@@ -313,13 +316,13 @@ void Job::detectBars() {
 QVariantList Job::subtitleChoices() const {
     QVariantList list{QVariantMap{{"value", "off"}, {"text", "None"}}};
     for (const SubtitleTrack &t : m_info.subtitles) {
-        if (!t.isText())
-            continue;    // pictures (Blu-ray, DVD) need overlaying, not libass
         QString text = QString("Track %1").arg(t.index + 1);
         if (!t.language.isEmpty() && t.language != "und")
             text += " · " + t.language;
         if (!t.title.isEmpty())
             text += " · " + t.title;
+        if (!t.isText())
+            text += " · " + codecName(t.codec) + " pictures";
         list.append(QVariantMap{{"value", QString("track:%1").arg(t.index)}, {"text", text}});
     }
     // Beside the source, named after it: film.srt, film.en.srt, film.forced.ass.

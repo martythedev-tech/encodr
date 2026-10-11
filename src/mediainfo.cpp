@@ -169,6 +169,8 @@ MediaInfo parseProbe(const QByteArray &json, const QString &path) {
             t.codec = s.value("codec_name").toString();
             t.language = tags.value("language").toString();
             t.title = tags.value("title").toString();
+            t.width = s.value("width").toInt();
+            t.height = s.value("height").toInt();
             info.subtitles.append(t);
         }
     }
@@ -214,7 +216,7 @@ QList<Issue> inspect(const MediaInfo &info) {
     if (pictureSubs > 0)
         issues.append({"info", QString("%1 picture subtitle track%2").arg(pictureSubs).arg(pictureSubs == 1 ? "" : "s"),
                        "Blu-ray and DVD subtitles are pictures, which MP4 and MOV can't hold. They're kept in MKV "
-                       "copies; text subtitles are kept in every video copy."});
+                       "copies and can be burned into any copy; text subtitles are kept in every video copy."});
     if (info.hasVideo && info.audio.isEmpty())
         issues.append({"info", "No audio", "This file has no audio tracks."});
 
