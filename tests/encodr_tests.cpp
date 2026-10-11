@@ -387,6 +387,65 @@ private slots:
         QCOMPARE(job.outputPath(), dir.filePath("bars_800p_001.mp4"));
     }
 
+    void rewrapIsSuggestedWhenItFits() {
+        auto probe = [](const QString &video, const QStringList &audio, const QString &subtitle = {}) {
+            QString streams = QString(R"({"index": 0, "codec_name": "%1", "codec_type": "video", "width": 1920,
+                "height": 1080, "pix_fmt": "yuv420p", "r_frame_rate": "25/1", "avg_frame_rate": "25/1"})").arg(video);
+            int i = 1;
+            for (const QString &a : audio)
+                streams += QString(R"(, {"index": %1, "codec_name": "%2", "codec_type": "audio", "sample_rate": "48000",
+                    "channels": 2})").arg(i++).arg(a);
+            if (!subtitle.isEmpty())
+                streams += QString(R"(, {"index": %1, "codec_name": "%2", "codec_type": "subtitle"})").arg(i).arg(subtitle);
+            return QString(R"({"streams": [%1], "format": {"format_name": "matroska,webm", "duration": "60",
+                "size": "1000000", "bit_rate": "133333"}})").arg(streams).toUtf8();
+        };
+        auto reason = [&](const QByteArray &json, const QString &path) { return rewrapReason(parseProbe(json, path), path); };
+
+        const QString mkv = reason(probe("h264", {"aac"}), "/x/film.mkv");
+        QVERIFY2(mkv.startsWith("The H.264 video and AAC audio already fit an MP4."), qPrintable(mkv));
+        QVERIFY(reason(probe("hevc", {"aac", "aac"}), "/x/clip.MOV").startsWith("The HEVC video and AAC audio"));
+        QVERIFY(reason(probe("h264", {}), "/x/silent.mkv").startsWith("The H.264 video already fits an MP4. Rewrapping moves it"));
+        QVERIFY(reason(probe("h264", {"aac"}, "hdmv_pgs_subtitle"), "/x/film.mkv").contains("Picture subtitles can't go along"));
+        // Already an MP4, or something that needs converting: no tip.
+        QVERIFY(reason(probe("h264", {"aac"}), "/x/film.mp4").isEmpty());
+        QVERIFY(reason(probe("prores", {"aac"}), "/x/film.mov").isEmpty());
+        QVERIFY(reason(probe("h264", {"ac3"}), "/x/film.mkv").isEmpty());
+        QVERIFY(reason(probe("h264", {"aac", "dts"}), "/x/film.mkv").isEmpty());
+        QVERIFY(reason(probe("vp9", {"opus"}), "/x/film.webm").isEmpty());
+    }
+
+    void rewrapTipForARealFile() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        const QString source = dir.filePath("talk.mkv");
+        QProcess make;
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25:duration=2",
+                              "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                              "-c:a", "aac", source});
+        QVERIFY(make.waitForFinished(60000));
+        QCOMPARE(make.exitCode(), 0);
+        Job job(1, source);
+        job.setPreset(builtinPresets().first());    // review: re-encodes
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        QCOMPARE(job.suggestion().value("presetId").toString(), QString("rewrap-mp4"));
+        QCOMPARE(job.suggestion().value("title").toString(), QString("This only needs a rewrap"));
+
+        // A crop needs the picture re-encoded: no tip while it's set.
+        job.setCropMargins(0, 20, 0, 20);
+        QVERIFY(job.suggestion().isEmpty());
+        job.setCropMode("off");
+        QVERIFY(!job.suggestion().isEmpty());
+
+        // Taking the tip: nothing more to suggest.
+        for (const Preset &p : builtinPresets())
+            if (p.id == "rewrap-mp4")
+                job.setPreset(p);
+        QVERIFY(job.suggestion().isEmpty());
+    }
+
     void telemetryReadsFakeMachine() {
         QTemporaryDir sys, proc;
         writeFile(proc.filePath("stat"), "cpu  100 0 100 800 0 0 0 0 0 0\ncpu0 50 0 50 400 0 0 0 0 0 0\ncpu1 50 0 50 400 0 0 0 0 0 0\n");

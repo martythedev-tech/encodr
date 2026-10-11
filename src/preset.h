@@ -137,6 +137,11 @@ Command buildCommand(const Preset &preset, const MediaInfo &info, const QString 
 QStringList outputStillArguments(const Preset &preset, const MediaInfo &info, const QString &input, double at,
                                  const QString &jpeg, int height = 1080);
 
+// When the source's video and audio already fit an MP4 that plays anywhere
+// (H.264 or HEVC with AAC or MP3, in MKV, MOV or the like), the rewrap
+// preset makes one in seconds: a plain-language reason why, else empty.
+QString rewrapReason(const MediaInfo &info, const QString &path);
+
 // The output picture's height after crop and size limit; 0 without a picture.
 int outputHeight(const Preset &preset, const MediaInfo &info);
 

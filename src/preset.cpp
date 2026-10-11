@@ -576,6 +576,39 @@ QStringList videoChain(const Preset &p, const MediaInfo &info, double start, QSt
 }
 }
 
+QString rewrapReason(const MediaInfo &info, const QString &path) {
+    const QString extension = QFileInfo(path).suffix().toLower();
+    if (!info.valid || !info.hasVideo || extension == "mp4" || extension == "m4v")
+        return {};
+    if (info.videoCodec != "h264" && info.videoCodec != "hevc")
+        return {};
+    QStringList audio;
+    for (const AudioTrack &t : info.audio) {
+        if (t.codec != "aac" && t.codec != "mp3")
+            return {};
+        if (!audio.contains(codecName(t.codec)))
+            audio << codecName(t.codec);
+    }
+    Preset rewrap;
+    for (const Preset &p : builtinPresets())
+        if (p.id == "rewrap-mp4")
+            rewrap = p;
+    if (rewrap.id.isEmpty() || !sourceProblem(rewrap, info).isEmpty())
+        return {};
+    QString reason = QString("The %1 video%2 already fit%3 an MP4. Rewrapping moves %4 into one in seconds, "
+                             "without re-encoding: the same picture and sound, nothing lost.")
+                         .arg(codecName(info.videoCodec))
+                         .arg(audio.isEmpty() ? QString() : " and " + audio.join(" and ") + " audio")
+                         .arg(audio.isEmpty() ? "s" : "")
+                         .arg(audio.isEmpty() ? "it" : "them");
+    int pictures = 0;
+    for (const SubtitleTrack &t : info.subtitles)
+        pictures += t.isText() ? 0 : 1;
+    if (pictures > 0)
+        reason += " Picture subtitles can't go along: MP4 has no place for them.";
+    return reason;
+}
+
 int outputHeight(const Preset &p, const MediaInfo &info) {
     if (!info.hasVideo || p.audioOnly())
         return 0;

@@ -8,6 +8,8 @@ ScrollView {
     property var job: null
     readonly property var info: job ? job.info : ({})
     signal seekRequested(real seconds)
+    readonly property bool tip: job !== null && job.suggestion.presetId !== undefined
+                                && job.state !== "running" && job.state !== "paused" && job.state !== "done"
     property string savedEdl: ""
     onJobChanged: savedEdl = ""
 
@@ -64,7 +66,44 @@ ScrollView {
 
         Section {
             title: "What Encodr found"
-            visible: job !== null && job.issues.length > 0
+            visible: job !== null && (job.issues.length > 0 || root.tip)
+            // A better preset for this file, with a switch to it; not once
+            // the conversion is under way or done.
+            RowLayout {
+                visible: root.tip
+                Layout.fillWidth: true
+                spacing: 10
+                Rectangle {
+                    Layout.alignment: Qt.AlignTop
+                    Layout.topMargin: 2
+                    implicitWidth: tipBadge.implicitWidth + 12
+                    implicitHeight: 18
+                    radius: 3
+                    color: "transparent"
+                    border.width: 1
+                    border.color: theme.accent
+                    Text {
+                        id: tipBadge
+                        anchors.centerIn: parent
+                        text: "TIP"
+                        color: theme.accent
+                        font.pixelSize: 10
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.5
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 1
+                    Text { text: root.tip ? job.suggestion.title : ""; color: theme.foreground; font.pixelSize: 13; font.weight: Font.Medium }
+                    Text { text: root.tip ? job.suggestion.detail : ""; color: theme.dim; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    UiButton {
+                        Layout.topMargin: 5
+                        text: root.tip ? job.suggestion.action : ""
+                        onClicked: backend.setJobPreset(backend.selectedIndex, job.suggestion.presetId)
+                    }
+                }
+            }
             Repeater {
                 model: job ? job.issues : []
                 RowLayout {

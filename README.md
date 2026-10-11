@@ -60,6 +60,8 @@ below; and the source details beside live stats. The layout is remembered.
 - **A source inspector that explains problems and fixes them.** Blank colour
   labels (common on Ki Pro and other recorders), interlaced video, audio split
   across mono tracks, clipping and silent tracks, read-only source drives.
+  When an MKV or MOV already holds H.264 or HEVC with AAC, it says the file
+  only needs a rewrap, with one click to switch to it.
 - **Check the whole file.** One pass finds black frames, frozen pictures,
   silence and the cuts between shots, marks them on the timeline (click one
   to jump there), and saves the cuts as an EDL for Resolve, Premiere or Avid.

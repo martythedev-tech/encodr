@@ -26,6 +26,9 @@ class Job : public QObject {
     Q_PROPERTY(QString message READ message NOTIFY stateChanged)
     Q_PROPERTY(QVariantMap info READ infoVariant NOTIFY infoChanged)
     Q_PROPERTY(QVariantList issues READ issues NOTIFY infoChanged)
+    // A better preset for this file, when there is one: {title, detail,
+    // presetId, action}; empty otherwise.
+    Q_PROPERTY(QVariantMap suggestion READ suggestion NOTIFY presetChanged)
     Q_PROPERTY(bool levelsScanned READ levelsScanned NOTIFY infoChanged)
     Q_PROPERTY(QString mediainfoReport READ mediainfoReport NOTIFY infoChanged)
     Q_PROPERTY(QVariantMap preset READ presetVariant NOTIFY presetChanged)
@@ -118,6 +121,7 @@ public:
     const MediaInfo &info() const { return m_info; }
     QVariantMap infoVariant() const { return m_info.toVariant(); }
     QVariantList issues() const;
+    QVariantMap suggestion() const;
     bool levelsScanned() const { return m_levelsScanned; }
     QString mediainfoReport() const { return m_mediainfo; }
     const Preset &presetValue() const { return m_preset; }

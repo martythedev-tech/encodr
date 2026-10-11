@@ -178,6 +178,18 @@ QStringList Job::notes() const {
     return m_info.valid ? command(outputPath(), false).notes : QStringList();
 }
 
+QVariantMap Job::suggestion() const {
+    // Not when the preset already copies, or the job changes the picture
+    // (crop, burned-in subtitles), which a rewrap can't do.
+    if (m_preset.copiesVideo() || !m_crop.isNull() || (m_subtitleBurn != "off" && !m_subtitleBurn.isEmpty()))
+        return {};
+    const QString reason = rewrapReason(m_info, m_input);
+    if (reason.isEmpty())
+        return {};
+    return {{"title", "This only needs a rewrap"}, {"detail", reason}, {"presetId", "rewrap-mp4"},
+            {"action", "Rewrap to MP4"}};
+}
+
 QVariantList Job::issues() const {
     QList<Issue> list = inspect(m_info);
     if (m_analysed)
