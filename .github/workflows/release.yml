@@ -111,6 +111,9 @@ jobs:
           host=linux; [ "${{ matrix.arch }}" = aarch64 ] && host=linux_arm64
           python3 -m aqt install-qt --outputdir "$HOME/Qt" $host desktop "$QT_VERSION" ${{ matrix.qt_arch }} -m qtmultimedia
           echo "QMAKE=$(ls -d "$HOME"/Qt/"$QT_VERSION"/*/bin/qmake)" >> "$GITHUB_ENV"
+          # The player uses Qt's FFmpeg backend; the GStreamer one (in the arm64
+          # build) would pull all of GStreamer into the AppImage.
+          rm -f "$HOME"/Qt/"$QT_VERSION"/*/plugins/multimedia/libgstreamermediaplugin.so
 
       - name: Fetch ffmpeg
         run: |
