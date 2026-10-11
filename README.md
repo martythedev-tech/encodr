@@ -25,12 +25,19 @@ below; and the source details beside live stats. The layout is remembered.
   size). If the GPU refuses a file, it's redone on the CPU. Stats show which
   GPU is doing the work.
 - **Presets that adapt to the source.** Review copy (H.264), review copy with
-  burned-in timecode, small share copy, HEVC, ProRes Proxy and 422, lossless
-  WAV and FLAC, AAC audio, a lossless cut, and a rewrap to MP4. Tune any
-  setting and save your own.
+  burned-in timecode, small share copy, HEVC, ProRes Proxy and 422, DNxHR LB
+  and HQ (what Resolve reads on Linux), lossless WAV and FLAC, AAC audio, a
+  lossless cut, and a rewrap to MP4. Tune any setting and save your own.
+- **Play it before you convert it.** The preview is a player: the source, or
+  the finished file afterwards. Under it, thumbnails across the whole clip
+  with a playhead to scrub. Keys: P plays, arrows jump a second, comma and
+  period step a frame.
 - **Trim to just the part you need.** Drag the in and out points under the
-  preview; it shows the exact frame as you go. Any preset converts only that
+  thumbnails, or press [ and ] at the playhead. Any preset converts only that
   part, and a trimmed copy keeps its place on the source's timecode.
+- **Loudness to a standard.** EBU R128 (−23 LUFS), ATSC A/85 (−24), podcasts
+  and web (−16) or streaming (−14): measured first, then set evenly, with the
+  true peak held under the ceiling.
 - **Cut or rewrap without re-encoding.** Copy the video and audio exactly as
   they are, in seconds: a lossless cut in the same file type, or MKV and MOV
   into an MP4 that plays anywhere. Encodr says up front when a stream won't
@@ -40,9 +47,12 @@ below; and the source details beside live stats. The layout is remembered.
 - **A source inspector that explains problems and fixes them.** Blank colour
   labels (common on Ki Pro and other recorders), interlaced video, audio split
   across mono tracks, clipping and silent tracks, read-only source drives.
+- **Check the whole file.** One pass finds black frames, frozen pictures,
+  silence and the cuts between shots, marks them on the timeline (click one
+  to jump there), and saves the cuts as an EDL for Resolve, Premiere or Avid.
 - **A live preview while it converts.** The frame being worked on right now,
   as the output will look (with burned-in timecode, watermark, scaling) or
-  as the source, or both side by side. Before converting, a poster frame.
+  as the source, or both side by side.
 - **Every number while it converts.** Percent, elapsed, time left and the clock
   time it will finish, speed (now and average), frames and fps, bitrate,
   size so far and the projected final size against free space, quantizer,
