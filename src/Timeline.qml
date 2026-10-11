@@ -57,9 +57,11 @@ ColumnLayout {
             onClicked: bar.toggleMute()
             Icon { anchors.centerIn: parent; name: bar.muted ? "mute" : "sound"; color: bar.muted ? theme.dim : theme.foreground; size: 14 }
         }
-        Item { Layout.fillWidth: true }
+        // Takes the rest of the row and right-aligns, rather than sizing
+        // itself from the row's width (which looped the layout).
         Text {
-            Layout.maximumWidth: bar.width * 0.6
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignRight
             elide: Text.ElideLeft
             color: bar.cut ? theme.foreground : theme.dim
             font.pixelSize: 11

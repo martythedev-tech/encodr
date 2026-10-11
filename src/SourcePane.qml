@@ -121,7 +121,7 @@ ScrollView {
             RowLayout {
                 visible: job !== null && job.analysing
                 spacing: 10
-                Text { text: "Checking… " + Format.number(job.analysisPercent, 0) + "%"; color: theme.foreground; font.pixelSize: 12 }
+                Text { text: job ? "Checking… " + Format.number(job.analysisPercent, 0) + "%" : ""; color: theme.foreground; font.pixelSize: 12 }
                 UiButton { kind: "ghost"; text: "Stop"; implicitHeight: 22; onClicked: job.stopAnalysis() }
             }
             Repeater {
