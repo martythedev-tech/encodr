@@ -337,6 +337,49 @@ int Backend::waitingCount() const {
     return n;
 }
 
+int Backend::joinableCount() const {
+    int n = 0;
+    for (Job *job : m_jobs)
+        if (job->isWaiting())
+            n += job->clipCount();
+    return n;
+}
+
+void Backend::joinWaiting() {
+    QList<Job *> waiting;
+    for (Job *job : m_jobs)
+        if (job->isWaiting())
+            waiting << job;
+    if (waiting.isEmpty() || joinableCount() < 2)
+        return;
+    Job *head = waiting.takeFirst();
+    QList<Job *> clips;
+    for (Job *job : waiting) {
+        m_jobs.removeOne(job);
+        clips << job;
+        clips << job->split();    // a joined job's own clips follow it
+    }
+    head->join(clips);
+    emit jobsChanged();
+    setSelectedIndex(int(m_jobs.indexOf(head)));
+    emit selectionChanged();
+    emit queueChanged();
+}
+
+void Backend::splitJob(int index) {
+    Job *job = jobAt(index);
+    if (!job || job->isActive() || !job->joined())
+        return;
+    const QList<Job *> clips = job->split();
+    for (int i = 0; i < clips.size(); ++i) {
+        clips[i]->setParent(this);
+        m_jobs.insert(index + 1 + i, clips[i]);
+    }
+    emit jobsChanged();
+    emit selectionChanged();
+    emit queueChanged();
+}
+
 int Backend::doneCount() const {
     int n = 0;
     for (Job *job : m_jobs)
@@ -351,7 +394,7 @@ double Backend::queuePercent() const {
         const QString s = job->state();
         if (s == "failed" || s == "cancelled" || s == "probing")
             continue;
-        const double d = std::max(1.0, job->info().duration);
+        const double d = std::max(1.0, job->length());
         total += d;
         done += d * job->percent() / 100.0;
     }
@@ -371,10 +414,10 @@ double Backend::queueRemaining() const {
         if (job->isActive()) {
             any = true;
             remaining += job->remaining() >= 0 ? job->remaining()
-                                               : job->info().duration * (1 - job->percent() / 100.0) / speed;
+                                               : job->length() * (1 - job->percent() / 100.0) / speed;
         } else if (job->isWaiting()) {
             any = true;
-            remaining += job->info().duration / speed;
+            remaining += job->length() / speed;
         }
     }
     if (!any)

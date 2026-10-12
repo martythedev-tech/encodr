@@ -108,6 +108,13 @@ class Job : public QObject {
     // track in the source) or a subtitle file's path.
     Q_PROPERTY(QString subtitleBurn READ subtitleBurn NOTIFY subtitlesChanged)
     Q_PROPERTY(QVariantList subtitleChoices READ subtitleChoices NOTIFY subtitlesChanged)
+    // Clips joined on after this one (the queue's Join): how many in all,
+    // [{name, path, duration, summary}] for each, and how they differ
+    // (empty when they match and are read back to back as one file).
+    Q_PROPERTY(int clipCount READ clipCount NOTIFY infoChanged)
+    Q_PROPERTY(QVariantList clips READ clipsVariant NOTIFY infoChanged)
+    Q_PROPERTY(QString joinDifference READ joinDifference NOTIFY infoChanged)
+    Q_PROPERTY(double totalDuration READ length NOTIFY infoChanged)
     // The part of the source to convert: in and out points in seconds.
     Q_PROPERTY(double trimIn READ trimIn NOTIFY trimChanged)
     Q_PROPERTY(double trimOut READ trimOut NOTIFY trimChanged)
@@ -218,8 +225,23 @@ public:
     double trimIn() const { return m_trimIn; }
     double trimOut() const { return m_trimOut > 0 ? m_trimOut : m_info.duration; }
     bool trimmed() const { return m_trimIn > 0 || (m_trimOut > 0 && m_trimOut < m_info.duration); }
-    // How much of the source gets converted.
-    double length() const { return trimOut() - m_trimIn; }
+    // How much gets converted: the trimmed part, or every joined clip.
+    double length() const;
+
+    int clipCount() const { return 1 + int(m_clips.size()); }
+    bool joined() const { return !m_clips.isEmpty(); }
+    QVariantList clipsVariant() const;
+    QString joinDifference() const { return m_joinDifference; }
+    // Joins these jobs' files on after this one, in order; the jobs become
+    // this one's children until split. Trim and subtitle burn-in are for
+    // single files, so they're cleared.
+    void join(const QList<Job *> &clips);
+    // Gives the joined jobs back, in order, parentless.
+    QList<Job *> split();
+    // The source as the conversion sees it: this file, or every joined clip
+    // as one (their lengths added up; clips that differ keep one audio
+    // track and no subtitles, as the join gives them).
+    MediaInfo runInfo() const;
     Q_INVOKABLE void setTrim(double in, double out);
     Q_INVOKABLE void clearTrim() { setTrim(0, 0); }
     // Shows the source frame at this time in the preview (for setting the
@@ -316,6 +338,9 @@ private:
     void linkSubtitles() const;
     QString m_cropMode = "off";
     QMargins m_crop;
+    QList<Job *> m_clips;
+    QString m_joinDifference;
+    QString m_joinList;             // the concat list for clips that match
     QString m_padMode = "off";
     QString m_padFill = "black";
     QMargins m_detectedBars;

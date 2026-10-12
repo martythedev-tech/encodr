@@ -207,7 +207,7 @@ ColumnLayout {
             anchors.fill: parent
             anchors.topMargin: -2
             anchors.bottomMargin: -4
-            enabled: bar.duration > 0
+            enabled: bar.duration > 0 && bar.job !== null && bar.job.clipCount < 2    // joined clips aren't trimmed
             cursorShape: Qt.SizeHorCursor
             property bool movingIn: true
             function place(mx) {

@@ -69,6 +69,14 @@ struct Preset {
     // The burned track is pictures (Blu-ray PGS, DVD): overlaid straight from
     // the source's stream, not drawn by libass.
     bool burnSubtitlePicture = false;
+    // Clips joined on after this one, set per run from the job. When they
+    // all match, `joinList` is a concat list ffmpeg reads as one file;
+    // otherwise `joinClips` holds every clip (this one first), each fitted
+    // to the first one's picture and sound and joined by the concat filter.
+    int joinCount = 0;               // clips in all, this one included
+    QString joinList;
+    QList<MediaInfo> joinClips;
+    QString joinDifference;          // how the clips differ, in plain words
     // Plain-named links to the LUT and logo for ffmpeg's filters; set per run.
     QString lutFile;
     QString logoFile;
@@ -80,6 +88,8 @@ struct Preset {
     bool crops() const { return cropLeft || cropTop || cropRight || cropBottom; }
     bool pads() const { return padAcross > 0 && padDown > 0; }
     bool burnsSubtitles() const { return !burnSubtitles.isEmpty(); }
+    bool joins() const { return joinCount > 1; }
+    bool joinsByFilter() const { return joins() && joinList.isEmpty(); }
     QVariantMap toVariant() const;
     static Preset fromVariant(const QVariantMap &map);
 };
@@ -167,6 +177,14 @@ struct Padding {
     bool isNull() const { return width <= 0 || height <= 0; }
 };
 Padding padding(int width, int height, int across, int down, int maxHeight = 0);
+
+// How two clips differ in a way that stops them being read back to back as
+// one file (picture size, codec, frame rate, audio), in plain words; empty
+// when they match.
+QString clipDifference(const MediaInfo &a, const MediaInfo &b);
+
+// A concat list naming these files, for ffmpeg's concat demuxer.
+QString concatList(const QStringList &paths);
 
 // A codec's everyday name: H.264, AAC, Blu-ray (PGS)…
 QString codecName(const QString &codec);

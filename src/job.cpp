@@ -72,6 +72,7 @@ Job::~Job() {
     for (const QString &name : {"-lut.cube", "-logo.png", "-logo.jpg", "-logo.jpeg", "-logo.webp"})
         QFile::remove(m_subtitleLink + name);
     QFile::remove(m_subtitleLink + "-source." + QFileInfo(m_input).suffix().toLower());
+    QFile::remove(m_subtitleLink + "-join.txt");
 }
 
 QString Job::fileName() const {
@@ -152,6 +153,17 @@ Preset Job::runPreset() const {
     p.cropTop = m_crop.top();
     p.cropRight = m_crop.right();
     p.cropBottom = m_crop.bottom();
+    // Set afresh every time, like the crop: a preset taken from here and
+    // set again mustn't carry the clips twice.
+    p.joinCount = joined() ? clipCount() : 0;
+    p.joinDifference = joined() ? m_joinDifference : QString();
+    p.joinList = joined() && m_joinDifference.isEmpty() ? m_joinList : QString();
+    p.joinClips.clear();
+    if (joined() && !m_joinDifference.isEmpty()) {
+        p.joinClips << m_info;
+        for (const Job *c : m_clips)
+            p.joinClips << c->info();
+    }
     const QStringList aspect = m_padMode.split(':');
     if (aspect.size() == 2) {
         p.padAcross = aspect[0].toInt();
@@ -171,7 +183,7 @@ void Job::setEngine(const QString &engine, const QString &device) {
 
 Command Job::command(const QString &output, bool previews) const {
     const bool cut = trimmed();
-    return buildCommand(runPreset(), m_info, m_input, output, cut ? m_trimIn : -1, cut ? length() : -1,
+    return buildCommand(runPreset(), runInfo(), m_input, output, cut ? m_trimIn : -1, cut ? length() : -1,
                         previews ? m_previewOut : QString(), previews ? m_previewSource : QString(),
                         m_loudnessReady ? m_loudness : QList<Loudness>());
 }
@@ -190,7 +202,24 @@ QStringList Job::notes() const {
 
 QVariantMap Job::suggestion() const {
     // Not when the preset already copies, or the job changes the picture
-    // (crop, bars, burned-in subtitles), which a rewrap can't do.
+    // (crop, bars, burned-in subtitles), which a rewrap can't do. Joined
+    // clips that match can be joined by copying, in seconds.
+    if (joined() && m_joinDifference.isEmpty() && !m_preset.copiesVideo() && m_crop.isNull() && m_padMode == "off") {
+        Preset copy;
+        for (const Preset &b : builtinPresets())
+            if (b.id == "copy")
+                copy = b;
+        copy.joinCount = clipCount();
+        copy.joinList = m_joinList;
+        if (!copy.id.isEmpty() && sourceProblem(copy, runInfo()).isEmpty())
+            return {{"title", "These clips can be joined as they are"},
+                    {"detail", "They match, so they can be put back to back without re-encoding: in seconds, "
+                               "nothing lost."},
+                    {"presetId", "copy"}, {"action", "Join without re-encoding"}};
+        return {};
+    }
+    if (joined())
+        return {};
     if (m_preset.copiesVideo() || !m_crop.isNull() || m_padMode != "off" || (m_subtitleBurn != "off" && !m_subtitleBurn.isEmpty()))
         return {};
     const QString reason = rewrapReason(m_info, m_input);
@@ -364,7 +393,7 @@ QVariantList Job::subtitleChoices() const {
 }
 
 void Job::setSubtitleBurn(const QString &value) {
-    if (isActive() || value == "pick")
+    if (isActive() || joined() || value == "pick")
         return;
     if (value != "off" && !value.startsWith("track:")) {
         const QString suffix = QFileInfo(value).suffix().toLower();
@@ -396,11 +425,95 @@ void Job::linkSubtitles() const {
 
 QString Job::presetProblemText() const {
     const QString problem = presetProblem(m_preset);
-    return problem.isEmpty() ? sourceProblem(runPreset(), m_info) : problem;
+    return problem.isEmpty() ? sourceProblem(runPreset(), runInfo()) : problem;
+}
+
+double Job::length() const {
+    if (!joined())
+        return trimOut() - m_trimIn;
+    double total = m_info.duration;
+    for (const Job *c : m_clips)
+        total += c->info().duration;
+    return total;
+}
+
+QVariantList Job::clipsVariant() const {
+    QVariantList list;
+    auto add = [&list](const Job *j) {
+        list << QVariantMap{{"name", j->fileName()}, {"path", j->inputPath()}, {"duration", j->info().duration},
+                            {"summary", j->info().summary()}};
+    };
+    add(this);
+    for (const Job *c : m_clips)
+        add(c);
+    return list;
+}
+
+MediaInfo Job::runInfo() const {
+    if (!joined())
+        return m_info;
+    MediaInfo info = m_info;
+    info.duration = length();
+    if (!m_joinDifference.isEmpty()) {
+        // The join gives one sound, shaped like the first clip's that has any.
+        info.audio.clear();
+        info.subtitles.clear();
+        QList<const Job *> all{this};
+        for (const Job *c : m_clips)
+            all << c;
+        for (const Job *j : all)
+            if (!j->info().audio.isEmpty()) {
+                AudioTrack t = j->info().audio.first();
+                t.index = 0;
+                info.audio << t;
+                break;
+            }
+    }
+    return info;
+}
+
+void Job::join(const QList<Job *> &clips) {
+    if (isActive() || clips.isEmpty())
+        return;
+    for (Job *c : clips) {
+        c->setParent(this);
+        m_clips << c;
+    }
+    m_joinDifference.clear();
+    QStringList paths{QFileInfo(m_input).absoluteFilePath()};
+    for (const Job *c : m_clips) {
+        paths << QFileInfo(c->inputPath()).absoluteFilePath();
+        if (m_joinDifference.isEmpty())
+            m_joinDifference = clipDifference(m_info, c->info());
+    }
+    m_joinList = m_subtitleLink + "-join.txt";
+    QFile list(m_joinList);
+    if (list.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        list.write(concatList(paths).toUtf8());
+    m_trimIn = m_trimOut = 0;
+    m_subtitleBurn = "off";
+    emit trimChanged();
+    emit subtitlesChanged();
+    emit infoChanged();
+    emit presetChanged();
+}
+
+QList<Job *> Job::split() {
+    if (isActive() || !joined())
+        return {};
+    const QList<Job *> clips = m_clips;
+    m_clips.clear();
+    m_joinDifference.clear();
+    for (Job *c : clips)
+        c->setParent(nullptr);
+    QFile::remove(m_joinList);
+    emit infoChanged();
+    emit presetChanged();
+    return clips;
 }
 
 void Job::setTrim(double in, double out) {
-    if (isActive())
+    if (isActive() || joined())
         return;
     const double end = m_info.duration;
     in = std::clamp(in, 0.0, std::max(0.0, end));
@@ -672,7 +785,7 @@ bool Job::launch() {
     // A loudness target needs each audio stream measured first (once per
     // run: a GPU fallback reuses the numbers).
     const bool measure = !m_loudnessReady && !m_preset.copiesAudio() && loudnessTarget(m_preset.loudness).lufs < 0
-                         && audioStreamCount(m_preset, m_info) > 0;
+                         && audioStreamCount(m_preset, runInfo()) > 0;
     if (measure)
         measureLoudness(0);
     else
@@ -681,12 +794,12 @@ bool Job::launch() {
 }
 
 void Job::measureLoudness(int stream) {
-    if (stream >= audioStreamCount(m_preset, m_info)) {
+    if (stream >= audioStreamCount(m_preset, runInfo())) {
         m_loudnessReady = true;
         encode();
         return;
     }
-    const int count = audioStreamCount(m_preset, m_info);
+    const int count = audioStreamCount(m_preset, runInfo());
     m_message = count > 1 ? QString("Measuring loudness, audio %1 of %2…").arg(stream + 1).arg(count)
                           : QString("Measuring loudness…");
     emit stateChanged();
@@ -713,7 +826,7 @@ void Job::measureLoudness(int stream) {
         measureLoudness(stream + 1);
     });
     const bool cut = trimmed();
-    process->start("ffmpeg", loudnessArguments(m_preset, m_info, m_input, stream, cut ? m_trimIn : -1,
+    process->start("ffmpeg", loudnessArguments(runPreset(), runInfo(), m_input, stream, cut ? m_trimIn : -1,
                                                cut ? length() : -1));
 }
 

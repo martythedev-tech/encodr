@@ -64,6 +64,49 @@ ScrollView {
             font.pixelSize: 14
         }
 
+        // The clips the queue's Join put together, in the order they play.
+        Section {
+            title: "Joined clips"
+            visible: job !== null && job.clipCount > 1
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                color: theme.dim
+                font.pixelSize: 12
+                text: !job || job.clipCount < 2 ? ""
+                      : job.joinDifference === ""
+                        ? job.clipCount + " clips, " + Format.duration(job.totalDuration) + " in all. They match, so they're put back to back as they are."
+                        : job.clipCount + " clips, " + Format.duration(job.totalDuration) + " in all. They differ (" + job.joinDifference
+                          + "), so each is fitted to the first: its picture size and frame rate, and its first audio track. Subtitles are left out."
+            }
+            Repeater {
+                model: job ? job.clips : []
+                RowLayout {
+                    required property var modelData
+                    required property int index
+                    Layout.fillWidth: true
+                    spacing: 10
+                    Text { text: (index + 1) + "."; color: theme.dim; font.pixelSize: 12; font.features: { "tnum": 1 }; Layout.preferredWidth: 18 }
+                    Text { text: modelData.name; color: theme.foreground; font.pixelSize: 12; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                    Text { text: Format.duration(modelData.duration); color: theme.dim; font.pixelSize: 12; font.features: { "tnum": 1 } }
+                }
+            }
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                color: theme.dim
+                font.pixelSize: 11
+                text: "The player shows the first clip. Trim and subtitle burn-in are for single files; split to use them."
+            }
+            UiButton {
+                Layout.topMargin: 2
+                text: "Split"
+                kind: "ghost"
+                enabled: job !== null && job.state !== "running" && job.state !== "paused"
+                onClicked: backend.splitJob(backend.selectedIndex)
+            }
+        }
+
         Section {
             title: "What Encodr found"
             visible: job !== null && (job.issues.length > 0 || root.tip)

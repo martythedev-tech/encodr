@@ -43,6 +43,8 @@ class Backend : public QObject {
     Q_PROPERTY(int parallel READ parallel WRITE setParallel NOTIFY settingsChanged)
     Q_PROPERTY(int autoParallel READ autoParallel CONSTANT)
     Q_PROPERTY(int runningCount READ runningCount NOTIFY queueChanged)
+    // Waiting files the queue's Join would put together (2 or more to join).
+    Q_PROPERTY(int joinableCount READ joinableCount NOTIFY queueChanged)
 
 public:
     explicit Backend(FilePicker *picker, const QString &configDir = {}, Telemetry *telemetry = nullptr,
@@ -66,6 +68,7 @@ public:
     bool hasActiveWork() const;
     int runningCount() const;
     int waitingCount() const;
+    int joinableCount() const;
 
     // GPU encoding is experimental and off until switched on. `hardware` is
     // what the machine was found to have.
@@ -104,6 +107,10 @@ public:
     Q_INVOKABLE void retryJob(int index);
     Q_INVOKABLE void moveJob(int index, int delta);
     Q_INVOKABLE void clearFinished();
+    // Joins every waiting file, in queue order, into the first of them;
+    // split puts a joined job's clips back in the queue after it.
+    Q_INVOKABLE void joinWaiting();
+    Q_INVOKABLE void splitJob(int index);
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
 

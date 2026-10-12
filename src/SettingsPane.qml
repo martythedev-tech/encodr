@@ -431,7 +431,7 @@ ScrollView {
                                 topInset: 0
                                 bottomInset: 0
                                 font.pixelSize: 12
-                                enabled: !root.locked && job !== null
+                                enabled: !root.locked && job !== null && job.clipCount < 2
                                 textRole: "text"
                                 valueRole: "value"
                                 model: job ? job.subtitleChoices : []

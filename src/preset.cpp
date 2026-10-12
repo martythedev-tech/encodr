@@ -276,6 +276,9 @@ QString sourceProblem(const Preset &p, const MediaInfo &info) {
     if (p.pads() && p.copiesVideo())
         return "Adding bars changes the picture, so the video can't be copied as it is. Choose a video codec, "
                "or turn the bars off.";
+    if (p.joinsByFilter() && (p.copiesVideo() || p.copiesAudio()))
+        return QString("These clips differ (%1), so they can only be joined by converting them. Choose a preset "
+                       "that converts the video and audio, or split them.").arg(p.joinDifference);
     if (p.crops() && (info.width - p.cropLeft - p.cropRight < 16 || info.height - p.cropTop - p.cropBottom < 16))
         return "The crop leaves almost nothing of the picture.";
     if (p.container == "source" || p.container == "mkv")
@@ -473,6 +476,108 @@ QString loudnormFilter(const LoudnessTarget &t, const Loudness &m) {
 }
 }
 
+namespace {
+// The inputs: the source, the clips joined after it as one concat-list file
+// when they match, or every clip as an input of its own when they don't
+// (never trimmed). The colour fix goes before each input it applies to.
+QStringList inputArguments(const Preset &p, const MediaInfo &info, const QString &input, double start, double length,
+                           bool colourFix) {
+    QStringList a;
+    if (p.joinsByFilter()) {
+        for (const MediaInfo &c : p.joinClips)
+            a << (colourFix ? colourFixArguments(c) : QStringList()) << "-i" << c.path;
+        return a;
+    }
+    if (colourFix)
+        a << colourFixArguments(info);
+    if (start >= 0)
+        a << "-ss" << QString::number(start, 'f', 3);
+    if (p.joins())
+        a << "-f" << "concat" << "-safe" << "0" << "-i" << p.joinList;
+    else
+        a << "-i" << input;
+    if (length > 0)
+        a << "-t" << QString::number(length, 'f', 3);
+    return a;
+}
+
+// Clips that differ, joined by the concat filter: each one's picture fitted
+// to the first's size, rate and pixel format (bars where the shape
+// differs), and its first audio track to the first's rate and channels.
+// A clip without one gets black or silence for its length. Ends in [jv]
+// and [ja].
+QString joinGraph(const Preset &p, const MediaInfo &info, bool video, bool audio) {
+    const int w = info.width, h = info.height;
+    const QString rate = info.fpsRational.isEmpty() ? QString::number(info.fps > 0 ? info.fps : 25) : info.fpsRational;
+    const QString pixels = info.pixelFormat.isEmpty() ? QString("yuv420p") : info.pixelFormat;
+    const AudioTrack first = info.audio.isEmpty() ? AudioTrack() : info.audio.first();
+    const int sampleRate = first.sampleRate > 0 ? first.sampleRate : 48000;
+    const QString layout = !first.layout.isEmpty() ? first.layout : first.channels == 1 ? QString("mono") : QString("stereo");
+    QStringList graph;
+    QString labels;
+    for (int i = 0; i < p.joinClips.size(); ++i) {
+        const MediaInfo &c = p.joinClips[i];
+        const QString length = QString::number(std::max(0.04, c.duration), 'f', 3);
+        if (video) {
+            graph << (c.hasVideo
+                          ? QString("[%1:v:0]scale=%2:%3:force_original_aspect_ratio=decrease,pad=%2:%3:(ow-iw)/2:(oh-ih)/2"
+                                    ":color=black,setsar=1,fps=%4,format=%5[jv%1]")
+                                .arg(i).arg(w).arg(h).arg(rate, pixels)
+                          : QString("color=c=black:s=%2x%3:r=%4:d=%5,format=%6,setsar=1[jv%1]")
+                                .arg(i).arg(w).arg(h).arg(rate, length, pixels));
+            labels += QString("[jv%1]").arg(i);
+        }
+        if (audio) {
+            graph << (!c.audio.isEmpty()
+                          ? QString("[%1:a:0]aresample=%2,aformat=sample_rates=%2:channel_layouts=%3[ja%1]")
+                                .arg(i).arg(sampleRate).arg(layout)
+                          : QString("anullsrc=r=%2:cl=%3,atrim=duration=%4[ja%1]").arg(i).arg(sampleRate).arg(layout, length));
+            labels += QString("[ja%1]").arg(i);
+        }
+    }
+    graph << labels + QString("concat=n=%1:v=%2:a=%3%4%5")
+                          .arg(p.joinClips.size()).arg(video ? 1 : 0).arg(audio ? 1 : 0)
+                          .arg(video ? "[jv]" : "", audio ? "[ja]" : "");
+    return graph.join(';');
+}
+}
+
+QString clipDifference(const MediaInfo &a, const MediaInfo &b) {
+    if (a.hasVideo != b.hasVideo)
+        return "one has no picture";
+    if (a.hasVideo) {
+        if (a.videoCodec != b.videoCodec)
+            return QString("%1 and %2 video").arg(codecName(a.videoCodec), codecName(b.videoCodec));
+        if (a.width != b.width || a.height != b.height)
+            return QString("%1×%2 and %3×%4").arg(a.width).arg(a.height).arg(b.width).arg(b.height);
+        if (std::abs(a.fps - b.fps) > 0.01)
+            return QString("%1 and %2 fps").arg(a.fps, 0, 'g', 4).arg(b.fps, 0, 'g', 4);
+        if (a.pixelFormat != b.pixelFormat)
+            return QString("%1 and %2 pictures").arg(a.pixelFormat, b.pixelFormat);
+    }
+    if (a.audio.size() != b.audio.size())
+        return QString("%1 and %2 audio tracks").arg(a.audio.size()).arg(b.audio.size());
+    for (int i = 0; i < a.audio.size(); ++i) {
+        const AudioTrack &x = a.audio[i], &y = b.audio[i];
+        if (x.codec != y.codec)
+            return QString("%1 and %2 audio").arg(codecName(x.codec), codecName(y.codec));
+        if (x.sampleRate != y.sampleRate)
+            return QString("audio at %1 and %2 kHz").arg(x.sampleRate / 1000.0).arg(y.sampleRate / 1000.0);
+        if (x.channels != y.channels)
+            return QString("%1 and %2 audio channels").arg(x.channels).arg(y.channels);
+    }
+    if (a.subtitles.size() != b.subtitles.size())
+        return QString("%1 and %2 subtitle tracks").arg(a.subtitles.size()).arg(b.subtitles.size());
+    return {};
+}
+
+QString concatList(const QStringList &paths) {
+    QString list = "ffconcat version 1.0\n";
+    for (QString path : paths)
+        list += "file '" + path.replace("'", "'\\''") + "'\n";
+    return list;
+}
+
 int audioStreamCount(const Preset &p, const MediaInfo &info) {
     return int(audioStreams(p, info).size());
 }
@@ -485,14 +590,13 @@ QStringList loudnessArguments(const Preset &p, const MediaInfo &info, const QStr
     const AudioStream &s = streams[stream];
     const LoudnessTarget t = loudnessTarget(p.loudness);
     QStringList a{"-nostdin", "-hide_banner", "-nostats"};
-    if (start >= 0)
-        a << "-ss" << QString::number(start, 'f', 3);
-    a << "-i" << input;
-    if (length > 0)
-        a << "-t" << QString::number(length, 'f', 3);
+    a << inputArguments(p, info, input, start, length, false);
     const QString chain = (s.filter.isEmpty() ? QString() : s.filter + ",")
                           + QString("loudnorm=I=%1:TP=%2:LRA=11:print_format=json").arg(t.lufs).arg(t.truePeak);
-    a << "-filter_complex" << s.inputs + chain + "[m]" << "-map" << "[m]" << "-f" << "null" << "-";
+    // Clips that differ are measured as the conversion joins them.
+    const QString graph = p.joinsByFilter() ? joinGraph(p, info, false, true) + ";[ja]" + chain + "[m]"
+                                            : s.inputs + chain + "[m]";
+    a << "-filter_complex" << graph << "-map" << "[m]" << "-f" << "null" << "-";
     return a;
 }
 
@@ -752,23 +856,33 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
     const QString container = containerFor(p, info);
     const bool previews = withVideo && !copyVideo && !previewOut.isEmpty() && !previewSource.isEmpty();
 
-    const QStringList fix = withVideo ? colourFixArguments(info) : QStringList();
-    if (!fix.isEmpty()) {
-        a << fix;
+    if (withVideo && !colourFixArguments(info).isEmpty())
         cmd.notes << QString("Colour labels set to %1").arg(hd ? "Rec. 709" : "Rec. 601");
-    }
 
     const bool gpu = withVideo && onGpu(p);
     if (gpu && p.hardware == "vaapi")
         a << "-vaapi_device" << (p.hardwareDevice.isEmpty() ? QString("/dev/dri/renderD128") : p.hardwareDevice);
 
-    if (start >= 0)
-        a << "-ss" << QString::number(start, 'f', 3);
-    a << "-i" << input;
-    if (length > 0)
-        a << "-t" << QString::number(length, 'f', 3);
+    a << inputArguments(p, info, input, start, length, withVideo);
 
+    const bool withAudio = !info.audio.isEmpty() && p.audio != "none";
     QStringList graph;
+    // Clips that differ come out of the join as one picture and one sound.
+    const QString videoIn = p.joinsByFilter() ? "[jv]" : "[0:v:0]";
+    if (p.joins()) {
+        if (p.joinsByFilter()) {
+            graph << joinGraph(p, info, withVideo, withAudio);
+            cmd.notes << QString("%1 clips joined: they differ (%2), so each is fitted to the first")
+                             .arg(p.joinCount).arg(p.joinDifference);
+            int extraTracks = 0;
+            for (const MediaInfo &c : p.joinClips)
+                extraTracks = std::max<int>(extraTracks, c.audio.size() - 1);
+            if (withAudio && extraTracks > 0)
+                cmd.notes << "Only each clip's first audio track is used";
+        } else {
+            cmd.notes << QString("%1 clips joined; they match, so they're read as one file").arg(p.joinCount);
+        }
+    }
     if (withVideo && !copyVideo) {
         QStringList chain = videoChain(p, info, start, cmd.notes);
         chain << "format=" + pixelFormatFor(p);
@@ -776,18 +890,17 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
         // uploaded, so the preview frames stay ordinary pictures.
         const bool upload = gpu && p.hardware == "vaapi";
         if (previews) {
-            graph << "[0:v:0]split=2[vin][sv]";
+            graph << videoIn + "split=2[vin][sv]";
             graph << "[vin]" + chain.join(',') + QString(",split=2[%1][pv]").arg(upload ? "vsw" : "v");
             if (upload)
                 graph << "[vsw]hwupload[v]";
             graph << QString("[pv]%1[pvo]").arg(kPreviewScale);
             graph << QString("[sv]%1[svo]").arg(kPreviewScale);
         } else {
-            graph << "[0:v:0]" + chain.join(',') + (upload ? ",hwupload" : "") + "[v]";
+            graph << videoIn + chain.join(',') + (upload ? ",hwupload" : "") + "[v]";
         }
     }
 
-    const bool withAudio = !info.audio.isEmpty() && p.audio != "none";
     QStringList audioMaps;
     if (withAudio) {
         if (info.splitMono() && !copyAudio)
@@ -805,8 +918,13 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
                              .arg(target.lufs).arg(target.name).arg(target.truePeak);
         const QList<AudioStream> streams = audioStreams(p, info);
         for (int k = 0; k < streams.size(); ++k) {
-            const AudioStream &s = streams[k];
+            AudioStream s = streams[k];
             QStringList filters;
+            if (p.joinsByFilter()) {
+                s.inputs = "[ja]";
+                s.filter.clear();
+                filters << "anull";    // the join's output has to be taken through the graph
+            }
             if (!s.filter.isEmpty())
                 filters << s.filter;
             if (normalise) {

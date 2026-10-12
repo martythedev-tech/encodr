@@ -47,6 +47,12 @@ below; and the source details beside live stats. The layout is remembered.
   they are, in seconds: a lossless cut in the same file type, or MKV and MOV
   into an MP4 that plays anywhere. Encodr says up front when a stream won't
   fit the new file type (ProRes or uncompressed audio into MP4, say).
+- **Join clips into one file.** Queue the clips in the order they should
+  play and press Join. Clips that match (same codec, size, frame rate and
+  audio, like one camera's) are put back to back as they are, and can be
+  joined without re-encoding in seconds. Clips that differ are converted, each
+  fitted to the first one's picture and frame rate with its first audio track;
+  a clip without sound gets silence. Split puts them back.
 - **Nothing left behind.** Every audio track is kept, with its language, and
   subtitles come along (as MP4 text, or exactly as they are in MKV).
 - **Crop.** Remove black bars (found automatically), crop to 16:9, 1:1, 4:5 or
@@ -108,6 +114,9 @@ below; and the source details beside live stats. The layout is remembered.
 - **Picture subtitles** (Blu-ray PGS, DVD) are drawn for the whole frame, so
   they go on before a crop: any placed in the cropped-off bars are cut. A copy
   trimmed to start in the middle of one shows it a few frames late.
+- **Joined clips** play and check as their first clip: the player, the
+  Output still and the whole-file check see only that one. Trim and subtitle
+  burn-in are for single files.
 - **GPU encoding** can make H.264 files up to a quarter larger than the
   CPU's at the same quality, and is still marked experimental. Quick Sync needs an Intel GPU
   from 2020 or later (older ones use VA-API instead).

@@ -15,6 +15,12 @@ Dock {
         },
         Item { Layout.fillWidth: true },
         UiButton {
+            visible: backend.joinableCount >= 2
+            text: "Join " + backend.joinableCount; kind: "ghost"
+            implicitHeight: 22
+            onClicked: backend.joinWaiting()
+        },
+        UiButton {
             visible: backend.doneCount > 0
             text: "Clear done"; hint: "X"; kind: "ghost"
             implicitHeight: 22
@@ -75,7 +81,7 @@ Dock {
                     Layout.fillWidth: true
                     spacing: 8
                     Text {
-                        text: card.j.fileName
+                        text: card.j.fileName + (card.j.clipCount > 1 ? " + " + (card.j.clipCount - 1) + " more" : "")
                         color: theme.foreground
                         font.pixelSize: 13
                         font.weight: Font.Medium
@@ -90,7 +96,8 @@ Dock {
                     }
                 }
                 Text {
-                    text: card.j.preset.name + (card.j.info.summary ? " · " + card.j.info.summary : "")
+                    text: card.j.preset.name + (card.j.clipCount > 1 ? " · " + card.j.clipCount + " clips joined"
+                                               : card.j.info.summary ? " · " + card.j.info.summary : "")
                     color: theme.dim
                     font.pixelSize: 11
                     elide: Text.ElideRight
@@ -119,7 +126,7 @@ Dock {
                         if (s === "done")
                             return Format.bytes(card.j.projectedSize) + " · " + Format.words(card.j.elapsed);
                         if (s === "ready")
-                            return Format.duration(card.j.info.duration) + " · " + Format.bytes(card.j.info.size);
+                            return Format.duration(card.j.totalDuration) + (card.j.clipCount > 1 ? "" : " · " + Format.bytes(card.j.info.size));
                         return card.j.message.split("\n")[0];
                     }
                 }

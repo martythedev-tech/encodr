@@ -1321,6 +1321,165 @@ private slots:
         QVERIFY(!job.runPreset().pads());
     }
 
+    void joinsClips() {
+        MediaInfo a;
+        a.valid = true;
+        a.hasVideo = true;
+        a.videoCodec = "h264";
+        a.width = 1920;
+        a.height = 1080;
+        a.fps = 25;
+        a.fpsRational = "25/1";
+        a.pixelFormat = "yuv420p";
+        a.duration = 10;
+        a.audio = {AudioTrack{0, "aac", 48000, 2, "stereo"}};
+        a.path = "/c/a.mp4";
+        MediaInfo b = a;
+        b.path = "/c/b.mp4";
+        QCOMPARE(clipDifference(a, b), QString());
+        b.width = 1280;
+        b.height = 720;
+        QCOMPARE(clipDifference(a, b), QString("1920×1080 and 1280×720"));
+        b = a;
+        b.fps = 29.97;
+        QCOMPARE(clipDifference(a, b), QString("25 and 29.97 fps"));
+        b = a;
+        b.videoCodec = "hevc";
+        QCOMPARE(clipDifference(a, b), QString("H.264 and HEVC video"));
+        b = a;
+        b.audio.clear();
+        QCOMPARE(clipDifference(a, b), QString("1 and 0 audio tracks"));
+        QCOMPARE(concatList({"/c/a.mp4", "/c/it's.mp4"}),
+                 QString("ffconcat version 1.0\nfile '/c/a.mp4'\nfile '/c/it'\\''s.mp4'\n"));
+
+        // Clips that match: one concat-list input, everything else as usual.
+        Preset p = builtinPresets().first();
+        p.joinCount = 2;
+        p.joinList = "/c/join.txt";
+        MediaInfo joined = a;
+        joined.duration = 20;
+        Command cmd = buildCommand(p, joined, "/c/a.mp4", "/y/out.mp4");
+        QString joinedArgs = cmd.arguments.join(' ');
+        QVERIFY2(joinedArgs.contains("-f concat -safe 0 -i /c/join.txt"), qPrintable(joinedArgs));
+        QVERIFY(!joinedArgs.contains("-i /c/a.mp4"));
+        QVERIFY(joinedArgs.contains("[0:v:0]"));
+        QVERIFY(cmd.notes.contains("2 clips joined; they match, so they're read as one file"));
+        Preset copy = p;
+        copy.video = copy.audio = "copy";
+        QVERIFY(sourceProblem(copy, joined).isEmpty());    // matching clips join without re-encoding
+
+        // Clips that differ: each an input, fitted to the first, then joined.
+        b = a;
+        b.width = 1280;
+        b.height = 720;
+        b.path = "/c/b.mp4";
+        MediaInfo c = a;
+        c.audio.clear();
+        c.duration = 4;
+        c.path = "/c/c.mp4";
+        p.joinCount = 3;
+        p.joinList.clear();
+        p.joinClips = {a, b, c};
+        p.joinDifference = clipDifference(a, b);
+        joined.duration = 24;
+        cmd = buildCommand(p, joined, "/c/a.mp4", "/y/out.mp4");
+        joinedArgs = cmd.arguments.join(' ');
+        QVERIFY2(joinedArgs.contains("-i /c/a.mp4 -i /c/b.mp4 -i /c/c.mp4"), qPrintable(joinedArgs));
+        QVERIFY2(joinedArgs.contains("[1:v:0]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
+                                     ":color=black,setsar=1,fps=25/1,format=yuv420p[jv1]"), qPrintable(joinedArgs));
+        QVERIFY2(joinedArgs.contains("anullsrc=r=48000:cl=stereo,atrim=duration=4.000[ja2]"), qPrintable(joinedArgs));
+        QVERIFY(joinedArgs.contains("[jv0][ja0][jv1][ja1][jv2][ja2]concat=n=3:v=1:a=1[jv][ja]"));
+        QVERIFY(joinedArgs.contains("[jv]"));
+        QVERIFY(joinedArgs.contains("[ja]anull"));
+        QVERIFY(cmd.notes.contains("3 clips joined: they differ (1920×1080 and 1280×720), so each is fitted to the first"));
+        copy = p;
+        copy.video = "copy";
+        QVERIFY(sourceProblem(copy, joined).contains("These clips differ (1920×1080 and 1280×720)"));
+
+        // Loudness is measured on the joined sound.
+        p.loudness = "web";
+        const QString measure = loudnessArguments(p, joined, "/c/a.mp4", 0).join(' ');
+        QVERIFY2(measure.contains("concat=n=3:v=0:a=1[ja];[ja]loudnorm=I=-16"), qPrintable(measure));
+    }
+
+    void joinsClipsForReal() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        auto make = [&](const QString &name, const QString &size, int rate, bool sound) {
+            QStringList a{"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i",
+                          QString("testsrc2=size=%1:rate=%2:duration=2").arg(size).arg(rate)};
+            if (sound)
+                a << "-f" << "lavfi" << "-i" << "sine=frequency=440:duration=2" << "-c:a" << "aac";
+            a << "-c:v" << "libx264" << "-pix_fmt" << "yuv420p" << "-shortest" << dir.filePath(name);
+            QProcess p;
+            p.start("ffmpeg", a);
+            return p.waitForFinished(30000) && p.exitCode() == 0;
+        };
+        QVERIFY(make("c1.mp4", "320x180", 25, true));
+        QVERIFY(make("c2.mp4", "320x180", 25, true));
+        QVERIFY(make("odd.mp4", "240x240", 30, false));
+        auto probe = [](const QString &file, const QString &entries) {
+            QProcess p;
+            p.start("ffprobe", {"-v", "error", "-show_entries", entries, "-of", "csv=p=0", file});
+            p.waitForFinished(20000);
+            return QString(p.readAllStandardOutput()).trimmed();
+        };
+
+        QTemporaryDir config;
+        Backend backend(nullptr, config.path());
+        backend.addPaths({dir.filePath("c1.mp4"), dir.filePath("c2.mp4")});
+        QTRY_COMPARE_WITH_TIMEOUT(backend.joinableCount(), 2, 15000);
+        backend.joinWaiting();
+        QCOMPARE(backend.jobs().size(), 1);
+        auto *job = backend.jobAt(0);
+        QCOMPARE(job->clipCount(), 2);
+        QVERIFY(job->joinDifference().isEmpty());
+        QCOMPARE(job->suggestion().value("presetId").toString(), QString("copy"));
+        QVERIFY(qAbs(job->length() - 4.0) < 0.2);
+
+        // Matching clips copied end to end: no re-encoding.
+        backend.setJobPreset(0, "copy");
+        job->setOutputFolder(dir.filePath("out"));
+        QSignalSpy copied(job, &Job::finished);
+        QVERIFY(job->start());
+        QVERIFY(copied.wait(60000));
+        QVERIFY2(copied.first().first().toBool(), qPrintable(job->message()));
+        const double copiedLength = probe(job->outputPath(), "format=duration").toDouble();
+        QVERIFY2(qAbs(copiedLength - 4.0) < 0.2, qPrintable(QString::number(copiedLength)));
+
+        // Split puts them back as they were.
+        backend.splitJob(0);
+        QCOMPARE(backend.jobs().size(), 2);
+        QCOMPARE(backend.jobAt(1)->inputPath(), dir.filePath("c2.mp4"));
+        QCOMPARE(backend.jobAt(0)->clipCount(), 1);
+
+        // A clip that differs (square, 30 fps, silent): re-encoded to fit the first.
+        backend.addPaths({dir.filePath("odd.mp4")});
+        QTRY_VERIFY_WITH_TIMEOUT(backend.jobAt(2) && backend.jobAt(2)->isWaiting(), 15000);
+        backend.removeJob(0);    // the finished one
+        QCOMPARE(backend.joinableCount(), 2);
+        backend.joinWaiting();
+        job = backend.jobAt(0);
+        QCOMPARE(job->clipCount(), 2);
+        QCOMPARE(job->joinDifference(), QString("320×180 and 240×240"));
+        backend.setJobPreset(0, "review");
+        Preset p = job->runPreset();
+        p.speed = "ultrafast";
+        p.loudness = "web";    // measured on the joined sound, silence included
+        job->setPreset(p);
+        job->setOutputFolder(dir.filePath("out"));
+        QSignalSpy converted(job, &Job::finished);
+        QVERIFY(job->start());
+        QVERIFY(converted.wait(90000));
+        QVERIFY2(converted.first().first().toBool(), qPrintable(job->message()));
+        const QString out = job->outputPath();
+        QCOMPARE(probe(out, "stream=codec_type,width,height").split('\n').first(), QString("video,320,180"));
+        QVERIFY(probe(out, "stream=codec_type").contains("audio"));
+        const double length = probe(out, "format=duration").toDouble();
+        QVERIFY2(qAbs(length - 4.0) < 0.2, qPrintable(QString::number(length)));
+    }
+
     void padsForReal() {
         if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
             QSKIP("ffmpeg is not installed");
