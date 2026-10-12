@@ -12,6 +12,7 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QUrl>
 
@@ -30,6 +31,15 @@ int main(int argc, char *argv[]) {
         QLoggingCategory::setFilterRules("qt.multimedia.ffmpeg*=false");
     if (!qEnvironmentVariableIsSet("LIBVA_MESSAGING_LEVEL"))
         qputenv("LIBVA_MESSAGING_LEVEL", "1");    // VA-API drivers: errors only
+    // Apple Silicon under Linux (Asahi) has no hardware video decoding, but
+    // VA-API still offers a decoder; the player tries it, fails on codecs
+    // like AV1, and never falls back, so the picture freezes. Decode in
+    // software there.
+    if (!qEnvironmentVariableIsSet("QT_FFMPEG_DECODING_HW_DEVICE_TYPES")) {
+        QFile compatible("/proc/device-tree/compatible");
+        if (compatible.open(QIODevice::ReadOnly) && compatible.readAll().contains("apple,arm-platform"))
+            qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "none");
+    }
     QGuiApplication app(argc, argv);
     app.setApplicationName("encodr");
     app.setOrganizationName("encodr");    // ~/.config/encodr/encodr.conf holds the layout
