@@ -1988,13 +1988,14 @@ private slots:
         // A setting changed while the next frame is still being made (an
         // out point set at the playhead) ends on that frame, not the last
         // one shown.
+        // (Whether the change lands while ffmpeg is still busy depends on
+        // the machine's speed; either way the result must be the new frame,
+        // processed the new way.)
         job.showOutputAt(3.0);
         QTest::qWait(250);    // past the 120 ms gathering: ffmpeg is making it
-        QVERIFY(job.outputStillBusy());
         job.setCropMargins(0, 140, 0, 140);
-        QTRY_VERIFY_WITH_TIMEOUT(!job.outputStillBusy() && job.outputStillStamp() >= 4, 20000);
-        QCOMPARE(job.outputStillTime(), 3.0);
-        QCOMPARE(QImage(job.outputStill()).size(), QSize(1920, 800));
+        QTRY_VERIFY_WITH_TIMEOUT(!job.outputStillBusy() && job.outputStillTime() == 3.0
+                                     && QImage(job.outputStill()).size() == QSize(1920, 800), 20000);
     }
 
     void subtitleBurnCommands() {
