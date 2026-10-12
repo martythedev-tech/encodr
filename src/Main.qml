@@ -241,6 +241,8 @@ ApplicationWindow {
                     text: {
                         if (backend.notice !== "")
                             return backend.notice;
+                        if (backend.running && backend.paused)
+                            return "Queue " + Format.number(backend.queuePercent, 0) + "% · paused";
                         if (backend.running && backend.queueRemaining >= 0)
                             return "Queue " + Format.number(backend.queuePercent, 0) + "% · all done around "
                                    + Format.clock(backend.queueFinishAt) + " (" + Format.words(backend.queueRemaining) + ")";

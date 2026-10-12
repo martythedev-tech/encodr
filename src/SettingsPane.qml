@@ -715,7 +715,7 @@ ScrollView {
                                     var names = [];
                                     for (var i = 0; i < hw.encoders.length; i++)
                                         names.push(hw.encoders[i].name + " (" + hw.encoders[i].codecs.join(", ").toUpperCase() + ")");
-                                    return "Found " + names.join(", ") + ". Much faster, at the same quality as the CPU, but files come out larger (often about twice the size); "
+                                    return "Found " + names.join(", ") + ". Much faster, at about the same quality as the CPU, though H.264 files can come out up to a quarter larger; "
                                            + "if the GPU refuses a file, Encodr redoes it on the CPU.";
                                 }
                             }
