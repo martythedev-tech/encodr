@@ -801,7 +801,7 @@ private slots:
 
         p.hardware = "nvenc";
         QString joined = buildCommand(p, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
-        QVERIFY2(joined.contains("-c:v h264_nvenc -preset p4 -tune hq -rc vbr -cq 19 -b:v 0 -profile:v high"), qPrintable(joined));
+        QVERIFY2(joined.contains("-c:v h264_nvenc -preset p4 -tune hq -rc vbr -cq 24 -b:v 0 -profile:v high"), qPrintable(joined));
         QVERIFY(joined.contains("-maxrate 16000k"));
         QVERIFY(joined.contains("format=yuv420p[v]"));
         QVERIFY(!joined.contains("libx264"));
@@ -830,6 +830,7 @@ private slots:
         QCOMPARE(h.video, QString("hevc"));
         h.hardware = "nvenc";
         joined = buildCommand(h, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains("-c:v hevc_nvenc -preset p5 -tune hq -rc vbr -cq 28 -b:v 0"), qPrintable(joined));    // crf 22 + 6
         QVERIFY2(joined.contains("format=p010le[v]") && joined.contains("-c:v hevc_nvenc") && joined.contains("-profile:v main10")
                  && joined.contains("-tag:v hvc1"), qPrintable(joined));
         h.hardware = "vaapi";

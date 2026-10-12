@@ -1099,13 +1099,15 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             const QString encoder = (hevc ? "hevc_" : "h264_") + p.hardware;
             a << "-c:v" << encoder;
             // Constant quality like the CPU path: CRF maps onto each family's
-            // own quality scale, about one step coarser on NVENC. VA-API's
-            // constant QP at qp = crf looked a little better than x264 at
-            // 1.75-2.8x the size; these offsets match x264/x265 on VMAF
-            // (Intel Iris Xe: H.264 ~25% larger, HEVC the same size).
+            // own quality scale, offset so the files match x264/x265 on VMAF.
+            // NVENC at cq = crf + 1 came out twice the size of x264/x265 at a
+            // higher VMAF; at crf + 6 (RTX 3080, 1080p60) H.264 is 8% larger
+            // and HEVC 10%, both slightly better. VA-API's constant QP at
+            // qp = crf was 1.75-2.8x the size; these offsets match on Intel
+            // Iris Xe (H.264 ~25% larger, HEVC the same size).
             if (p.hardware == "nvenc")
                 a << "-preset" << nvencPreset(p.speed) << "-tune" << "hq" << "-rc" << "vbr"
-                  << "-cq" << QString::number(p.crf + 1) << "-b:v" << "0";
+                  << "-cq" << QString::number(std::min(51, p.crf + 6)) << "-b:v" << "0";
             else if (p.hardware == "qsv")
                 a << "-preset" << qsvPreset(p.speed) << "-global_quality" << QString::number(p.crf);
             else
