@@ -104,6 +104,13 @@ QByteArray pgsBox() {
     return display(90000, true, 0) + display(4 * 90000, false, 1);
 }
 
+Preset presetNamed(const QString &id) {
+    for (const Preset &p : builtinPresets())
+        if (p.id == id)
+            return p;
+    return {};
+}
+
 // The average brightness (0-255) of the box's area at `seconds`.
 int boxBrightness(const QString &file, double seconds) {
     QProcess p;
@@ -832,7 +839,7 @@ private slots:
         QVERIFY2(joined.contains("-c:v hevc_qsv -preset medium -global_quality 22") && !joined.contains("-b:v"), qPrintable(joined));
 
         // ProRes never goes to the GPU, whatever the setting.
-        Preset prores = builtinPresets()[4];
+        Preset prores = presetNamed("prores-proxy");
         prores.hardware = "nvenc";
         QVERIFY(buildCommand(prores, info, "/x/in.mov", "/y/out.mov").arguments.contains("prores_ks"));
     }
@@ -1319,6 +1326,112 @@ private slots:
         QCOMPARE(job.padMode(), QString("9:16"));
         job.setPadMode("off");
         QVERIFY(!job.runPreset().pads());
+    }
+
+    void av1AndFfv1() {
+        const MediaInfo info = parseProbe(kKiPro, "/x/in.mov");    // 1280×720 ProRes 422 HQ, 10-bit 4:2:2
+        Preset av1 = presetNamed("av1");
+        QCOMPARE(av1.video, QString("av1"));
+        QVERIFY(presetProblem(av1).isEmpty());
+        Command cmd = buildCommand(av1, info, "/x/in.mov", "/y/out.mp4");
+        QString joined = cmd.arguments.join(' ');
+        // The quality slider + 15 on SVT-AV1's scale; 10-bit, the effort mapped.
+        QVERIFY2(joined.contains("format=yuv420p10le[v]"), qPrintable(joined));
+        QVERIFY2(joined.contains("-c:v libsvtav1 -preset 8 -crf 33"), qPrintable(joined));
+        QVERIFY(!joined.contains("-maxrate"));
+        av1.speed = "slow";
+        av1.maxrateKbps = 8000;
+        joined = buildCommand(av1, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains("-c:v libsvtav1 -preset 6 -crf 33 -maxrate 8000k -bufsize 16000k"), qPrintable(joined));
+        av1.container = "mov";
+        QVERIFY(presetProblem(av1).contains("MOV can't hold AV1"));
+        av1.container = "webm";
+        av1.audio = "opus";
+        QVERIFY(presetProblem(av1).isEmpty());    // WebM takes AV1 as well as VP9
+
+        // Without SVT-AV1 in this ffmpeg, AV1 is refused up front, saying why.
+        QTemporaryDir config;
+        Backend backend(nullptr, config.path());
+        Hardware hardware;
+        backend.setHardware(&hardware);
+        QCOMPARE(backend.engineFor(presetNamed("av1")).first, QString("cpu"));    // not listed yet: no guessing
+        hardware.setBuiltEncoders({"libx264", "libx265"});
+        QCOMPARE(backend.engineFor(presetNamed("av1")).first, QString("missing"));
+        Job job(1, "/x/in.mov");
+        job.setPreset(presetNamed("av1"));
+        job.setEngine("missing");
+        QVERIFY(job.presetProblemText().contains("built without SVT-AV1"));
+        hardware.setBuiltEncoders({"libx264", "libsvtav1"});
+        QCOMPARE(backend.engineFor(presetNamed("av1")).first, QString("cpu"));
+
+        // FFV1 keeps the source's own pixel format, all intra with checksums.
+        const Preset ffv1 = presetNamed("ffv1");
+        cmd = buildCommand(ffv1, info, "/x/in.mov", "/y/out.mkv");
+        joined = cmd.arguments.join(' ');
+        QVERIFY2(joined.contains("format=" + info.pixelFormat + "[v]"), qPrintable(joined));
+        QVERIFY(joined.contains("-c:v ffv1 -level 3 -g 1 -slicecrc 1 -slices 16"));
+        QVERIFY(joined.contains("-c:a flac"));
+        QVERIFY(!joined.contains("bwdif"));
+        QVERIFY(cmd.notes.contains("Lossless (FFV1), " + info.pixelFormat));
+        Preset mp4 = ffv1;
+        mp4.container = "mp4";
+        QCOMPARE(presetProblem(mp4), QString("FFV1 goes in MKV (Matroska) only."));
+        Preset same = ffv1;
+        same.container = "source";    // a .mov source
+        QVERIFY(sourceProblem(same, info).contains("FFV1 goes in MKV (Matroska) only, and this file is MOV"));
+        MediaInfo jpeg = info;
+        jpeg.pixelFormat = "yuvj420p";    // phones' full-range JPEG layout: stored as plain 4:2:0
+        QVERIFY(buildCommand(ffv1, jpeg, "/x/in.mov", "/y/out.mkv").arguments.join(' ').contains("format=yuv420p[v]"));
+    }
+
+    // Lossless means lossless: the FFV1 file decodes to exactly the source's
+    // frames. AV1 runs only where this ffmpeg has SVT-AV1.
+    void av1AndFfv1ForReal() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        QProcess make;
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=2",
+                              "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:v", "libx264", "-pix_fmt", "yuv422p10le",
+                              "-c:a", "pcm_s24le", "-shortest", dir.filePath("src.mov")});
+        QVERIFY(make.waitForFinished(30000));
+        QCOMPARE(make.exitCode(), 0);
+        auto convert = [&](const QString &presetId) {
+            Job job(1, dir.filePath("src.mov"));
+            job.setPreset(presetNamed(presetId));
+            job.setOutputFolder(dir.filePath("out"));
+            job.probe();
+            if (!QTest::qWaitFor([&] { return job.state() == "ready"; }, 15000))
+                return QString();
+            QSignalSpy finished(&job, &Job::finished);
+            if (!job.start() || !finished.wait(120000) || !finished.first().first().toBool())
+                return QString();
+            return job.outputPath();
+        };
+        auto hash = [](const QString &file, const QString &stream) {
+            QProcess p;
+            p.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-i", file, "-map", stream, "-f", "md5", "-"});
+            p.waitForFinished(30000);
+            return QString(p.readAllStandardOutput()).trimmed();
+        };
+        const QString archive = convert("ffv1");
+        QVERIFY(!archive.isEmpty());
+        QVERIFY(archive.endsWith(".mkv"));
+        QCOMPARE(hash(archive, "0:v:0"), hash(dir.filePath("src.mov"), "0:v:0"));    // every pixel
+        QCOMPARE(hash(archive, "0:a:0"), hash(dir.filePath("src.mov"), "0:a:0"));    // every sample
+
+        QProcess list;
+        list.start("ffmpeg", {"-hide_banner", "-encoders"});
+        list.waitForFinished(10000);
+        if (!Hardware::parseEncoderList(list.readAllStandardOutput()).contains("libsvtav1"))
+            QSKIP("this ffmpeg has no SVT-AV1");
+        const QString small = convert("av1");
+        QVERIFY(!small.isEmpty());
+        QProcess probe;
+        probe.start("ffprobe", {"-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,pix_fmt",
+                                "-of", "csv=p=0", small});
+        QVERIFY(probe.waitForFinished(20000));
+        QCOMPARE(QString(probe.readAllStandardOutput()).trimmed(), QString("av1,yuv420p10le"));
     }
 
     void joinsClips() {

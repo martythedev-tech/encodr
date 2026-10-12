@@ -424,6 +424,9 @@ void Job::linkSubtitles() const {
 }
 
 QString Job::presetProblemText() const {
+    if (m_preset.video == "av1" && m_engine == "missing")
+        return "This ffmpeg can't make AV1: it was built without SVT-AV1. The Encodr AppImage's ffmpeg has it, "
+               "as do most distributions' (on Arch, ffmpeg with svt-av1). Choose another codec meanwhile.";
     const QString problem = presetProblem(m_preset);
     return problem.isEmpty() ? sourceProblem(runPreset(), runInfo()) : problem;
 }
@@ -858,6 +861,11 @@ void Job::encode() {
     connect(process, &QProcess::finished, this, &Job::onFinished);
 
     emit presetChanged();
+    // SVT-AV1 prints its banner whatever ffmpeg's log level; only its
+    // errors belong with ffmpeg's.
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert("SVT_LOG", "1");
+    process->setProcessEnvironment(env);
     process->start("ffmpeg", command.arguments);
 }
 

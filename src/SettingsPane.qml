@@ -9,7 +9,7 @@ ScrollView {
     property int jobIndex: -1
     readonly property var p: job ? job.preset : ({})
     readonly property bool locked: job === null || job.state === "running" || job.state === "paused" || job.state === "probing"
-    readonly property bool lossyVideo: p.video === "h264" || p.video === "hevc" || p.video === "vp9"
+    readonly property bool lossyVideo: p.video === "h264" || p.video === "hevc" || p.video === "av1" || p.video === "vp9"
     readonly property bool lossyAudio: p.audio === "aac" || p.audio === "opus" || p.audio === "mp3"
     clip: true
     contentWidth: availableWidth
@@ -138,11 +138,13 @@ ScrollView {
                     Choice { key: "video"; options: [
                         { value: "copy", text: "Copy — no re-encoding" },
                         { value: "h264", text: "H.264 — plays everywhere" }, { value: "hevc", text: "HEVC (H.265) — half the size" },
+                        { value: "av1", text: "AV1 — smallest, newer players" },
                         { value: "vp9", text: "VP9 — for the web" }, { value: "prores_proxy", text: "ProRes Proxy" },
                         { value: "prores_lt", text: "ProRes LT" }, { value: "prores_422", text: "ProRes 422" },
                         { value: "prores_hq", text: "ProRes 422 HQ" }, { value: "dnxhr_lb", text: "DNxHR LB — light proxy" },
                         { value: "dnxhr_sq", text: "DNxHR SQ" }, { value: "dnxhr_hq", text: "DNxHR HQ" },
-                        { value: "dnxhr_hqx", text: "DNxHR HQX — 10-bit" }, { value: "none", text: "No video (audio only)" }] }
+                        { value: "dnxhr_hqx", text: "DNxHR HQX — 10-bit" }, { value: "ffv1", text: "FFV1 — lossless archive (MKV)" },
+                        { value: "none", text: "No video (audio only)" }] }
                 }
                 Field {
                     label: "Quality"
@@ -160,6 +162,7 @@ ScrollView {
                         }
                         Text {
                             text: "CRF " + Math.round(crfSlider.value) + (crfSlider.value <= 18 ? " · visually lossless" : crfSlider.value <= 23 ? " · very good" : crfSlider.value <= 28 ? " · good, small" : " · rough, tiny") + "  (lower = better, bigger)"
+                                  + (root.p.video === "av1" ? " · SVT-AV1 CRF " + Math.min(63, Math.round(crfSlider.value) + 15) : "")
                             color: theme.dim
                             font.pixelSize: 12
                             wrapMode: Text.Wrap
@@ -169,7 +172,7 @@ ScrollView {
                 }
                 Field {
                     label: "Bitrate cap"
-                    visible: p.video === "h264" || p.video === "hevc"
+                    visible: p.video === "h264" || p.video === "hevc" || p.video === "av1"
                     RowLayout {
                         width: parent.width
                         SpinBox {
@@ -187,7 +190,7 @@ ScrollView {
                 }
                 Field {
                     label: "Encoder effort"
-                    visible: p.video === "h264" || p.video === "hevc"
+                    visible: p.video === "h264" || p.video === "hevc" || p.video === "av1"
                     Choice { key: "speed"; options: [
                         { value: "veryfast", text: "Very fast — bigger files" }, { value: "faster", text: "Faster" },
                         { value: "fast", text: "Fast (recommended)" }, { value: "medium", text: "Medium" },

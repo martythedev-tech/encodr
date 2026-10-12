@@ -79,6 +79,8 @@ void Hardware::detect() {
     connect(list, &QProcess::finished, this, [this, list](int, QProcess::ExitStatus) {
         list->deleteLater();
         const QStringList built = parseEncoderList(list->readAllStandardOutput());
+        m_built = built;
+        m_listed = true;
 
         // VA-API needs a render node; name it after the card's maker.
         QStringList nodes = QDir(m_devDir).entryList({"renderD*"}, QDir::System | QDir::Files, QDir::Name);
@@ -149,6 +151,12 @@ QVariantList Hardware::encodersVariant() const {
     for (const Encoder &e : m_encoders)
         list << QVariantMap{{"id", e.id}, {"name", e.name}, {"device", e.device}, {"codecs", e.codecs}};
     return list;
+}
+
+void Hardware::setBuiltEncoders(const QStringList &names) {
+    m_built = names;
+    m_listed = true;
+    emit changed();
 }
 
 void Hardware::setEncoders(const QList<Encoder> &encoders) {

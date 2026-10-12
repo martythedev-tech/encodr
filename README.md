@@ -25,9 +25,17 @@ below; and the source details beside live stats. The layout is remembered.
   quarter larger. If the GPU refuses a file, it's redone on the CPU. Stats
   show which GPU is doing the work.
 - **Presets that adapt to the source.** Review copy (H.264), review copy with
-  burned-in timecode, small share copy, HEVC, ProRes Proxy and 422, DNxHR LB
-  and HQ (what Resolve reads on Linux), lossless WAV and FLAC, AAC audio, a
-  lossless cut, and a rewrap to MP4. Tune any setting and save your own.
+  burned-in timecode, small share copy, HEVC, AV1, ProRes Proxy and 422, DNxHR
+  LB and HQ (what Resolve reads on Linux), an FFV1 archive master, lossless
+  WAV and FLAC, AAC audio, a lossless cut, and a rewrap to MP4. Tune any
+  setting and save your own.
+- **AV1 for the smallest files.** 10-bit AV1 through SVT-AV1: about half the
+  size of H.264 at the same quality, in about the same time. It needs an
+  ffmpeg built with SVT-AV1 (the AppImage's is; Encodr says so if yours
+  isn't). It runs on the CPU; GPU AV1 isn't used yet.
+- **FFV1 for archives.** Mathematically lossless video in MKV, in the
+  source's own pixel format (10-bit 4:2:2 stays 10-bit 4:2:2), every frame a
+  keyframe with checksums per slice, and FLAC audio.
 - **Play it before you convert it.** The preview is a player: the source, or
   the finished file afterwards. Under it, thumbnails across the whole clip
   with a playhead to scrub. Keys: P plays, arrows jump a second, comma and

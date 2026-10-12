@@ -311,6 +311,9 @@ void Backend::setGpuEnabled(bool on) {
 }
 
 QPair<QString, QString> Backend::engineFor(const Preset &preset) const {
+    // AV1 runs on the CPU through SVT-AV1, which not every ffmpeg has.
+    if (preset.video == "av1")
+        return {m_hardware && !m_hardware->canEncode("libsvtav1") ? "missing" : "cpu", {}};
     if (!m_gpuEnabled || !m_hardware || !preset.usesVideoEncoder() || preset.hardware == "cpu")
         return {"cpu", {}};
     const QString wanted = preset.hardware == "auto" ? m_hardware->best(preset.video) : preset.hardware;
@@ -645,6 +648,7 @@ void Backend::setJobPreset(int index, const QString &presetId) {
     if (!job || job->isActive())
         return;
     job->setPreset(presetById(presetId));
+    resolveEngines();
     if (job->isFinished())
         job->reset();
     m_defaultPreset = presetId;
@@ -666,6 +670,7 @@ void Backend::editJobPreset(int index, const QString &key, const QVariant &value
     if (!name.endsWith("(edited)"))
         map.insert("name", name + " (edited)");
     job->setPreset(Preset::fromVariant(map));
+    resolveEngines();
     if (job->isFinished())
         job->reset();
 }

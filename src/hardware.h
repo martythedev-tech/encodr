@@ -39,6 +39,11 @@ public:
     QString best(const QString &codec) const;
     // What detect() found; tests set it directly to stand in for a GPU.
     void setEncoders(const QList<Encoder> &encoders);
+    // Whether this ffmpeg was built with an encoder ("libsvtav1"); true
+    // until its list has been read, so nothing is refused on a guess.
+    bool canEncode(const QString &encoder) const { return !m_listed || m_built.contains(encoder); }
+    // What `ffmpeg -encoders` listed; tests set it to stand in for a build.
+    void setBuiltEncoders(const QStringList &names);
     QString deviceFor(const QString &id) const;
     QString nameFor(const QString &id) const;
 
@@ -64,5 +69,7 @@ private:
     QString m_devDir;
     QList<Candidate> m_pending;
     QList<Encoder> m_encoders;
+    QStringList m_built;
+    bool m_listed = false;
     bool m_ready = false;
 };
