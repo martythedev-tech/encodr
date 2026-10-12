@@ -665,6 +665,26 @@ ScrollView {
                         }
                     }
                     Field {
+                        label: "Quality check"
+                        ColumnLayout {
+                            width: parent.width
+                            spacing: 2
+                            Switch {
+                                checked: backend.checkAfter
+                                onToggled: backend.checkAfter = checked
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                color: theme.dim
+                                font.pixelSize: 11
+                                text: "Measure each file as soon as it's converted (VMAF, and bit-exact audio where it should be). "
+                                      + "It reads the source and the copy again, so it takes about as long as a fast conversion; "
+                                      + "off, the check is a button on each finished file."
+                            }
+                        }
+                    }
+                    Field {
                         label: "GPU encoding"
                         ColumnLayout {
                             width: parent.width

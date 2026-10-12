@@ -55,6 +55,18 @@ below; and the source details beside live stats. The layout is remembered.
   they are, in seconds: a lossless cut in the same file type, or MKV and MOV
   into an MP4 that plays anywhere. Encodr says up front when a stream won't
   fit the new file type (ProRes or uncompressed audio into MP4, say).
+- **Check the quality afterwards.** On a finished file, Check quality
+  measures the copy against the source run through the same processing
+  (crop, scaling, LUT, overlays), so only what the encoder lost counts: VMAF
+  with its average, worst 1% and lowest, a curve across the file and the
+  weakest seconds to jump to. Audio that should be bit-exact (copied, or
+  lossless from lossless) is compared sample by sample. Save the result as a
+  text report beside the file, or switch it on for every file in Settings.
+  VMAF runs through ffmpeg's libvmaf, or the standalone `vmaf` tool when
+  ffmpeg lacks it; with neither, SSIM.
+- **Compare before and after.** After converting, the player's Compare view
+  shows the source as the conversion meant to make it and the converted
+  frame at the playhead, with a line to drag across.
 - **Join clips into one file.** Queue the clips in the order they should
   play and press Join. Clips that match (same codec, size, frame rate and
   audio, like one camera's) are put back to back as they are, and can be
@@ -136,7 +148,7 @@ below; and the source details beside live stats. The layout is remembered.
 | Space | Start the queue, or pause / resume |
 | O | Add files (or drag them onto the window) |
 | Double-click | In the browser: open a folder, or queue a file |
-| V | Preview: output, source, or side by side (before converting: source or output still) |
+| V | Preview: output, source, side by side, or compare with a wipe after converting (before converting: source or output still) |
 | C | Stop the current file |
 | R | Convert the selected file again |
 | Enter | Play the finished file |

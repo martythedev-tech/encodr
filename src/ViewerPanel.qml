@@ -10,7 +10,7 @@ Dock {
     id: root
     property var job: null
     property int jobIndex: -1
-    property string mode: "output"      // output, source, both
+    property string mode: "output"      // output, source, both, compare (after a run)
     // Before converting, the player can show the frame at the playhead as the
     // conversion will make it (a still, while paused): source or output.
     property string playerView: "source"
@@ -28,13 +28,26 @@ Dock {
         if (stillMode)
             playerView = playerView === "output" ? "source" : "output";
         else
-            mode = mode === "output" ? "source" : mode === "source" ? "both" : "output";
+            mode = mode === "output" ? "source" : mode === "source" ? "both"
+                 : mode === "both" && canCompare ? "compare" : "output";
     }
 
     // Outside a conversion the picture is a player: the source, or after a
     // run (with Output chosen) the finished file.
     readonly property bool playerMode: job !== null && !active && job.state !== "probing" && job.info.duration > 0
-    readonly property bool playsOutput: playerMode && done && mode === "output"
+    readonly property bool playsOutput: playerMode && done && (mode === "output" || mode === "compare")
+    // After a run, paused: the source as the conversion meant to make it
+    // and the converted file, wiped across each other (not for joined
+    // clips: the Output still knows only the first).
+    readonly property bool canCompare: done && hasPicture && job.canShowOutput && job.clipCount < 2
+    readonly property bool comparing: playerMode && canCompare && mode === "compare" && !playing
+    function requestCompare() {
+        if (!comparing)
+            return;
+        job.showOutputAt(job.trimIn + position);
+        job.showFinishedAt(position);
+    }
+    onComparingChanged: requestCompare()
     readonly property string playPath: !playerMode ? "" : playsOutput ? job.outputPath : job.inputPath
     readonly property real position: player.position / 1000
     readonly property bool playing: player.playbackState === MediaPlayer.PlayingState
@@ -48,7 +61,7 @@ Dock {
             job.showOutputAt(position);
     }
     onShowsStillChanged: requestStill()
-    onPositionChanged: if (!playing) requestStill()
+    onPositionChanged: if (!playing) { requestStill(); requestCompare(); }
 
     function seek(seconds) {
         player.position = Math.max(0, Math.round(seconds * 1000));
@@ -150,6 +163,7 @@ Dock {
             implicitHeight: 22
             options: root.stillMode ? [{ id: "source", text: "Source" }, { id: "output", text: "Output" }]
                                     : [{ id: "output", text: "Output" }, { id: "source", text: "Source" }, { id: "both", text: "Side by side" }]
+                                      .concat(root.canCompare ? [{ id: "compare", text: "Compare" }] : [])
             current: root.stillMode ? root.playerView : root.mode
             onPicked: function (id) {
                 if (root.stillMode)
@@ -263,6 +277,17 @@ Dock {
                     border.width: 1
                 }
             }
+            // Before and after, over the player's picture while paused.
+            WipeView {
+                anchors.fill: parent
+                visible: root.comparing
+                beforePath: job ? job.outputStill : ""
+                beforeStamp: job ? job.outputStillStamp : 0
+                afterPath: job ? job.finishedStill : ""
+                afterStamp: job ? job.finishedStillStamp : 0
+                beforeLabel: "Source, processed · " + Format.precise(root.position)
+                afterLabel: "Converted"
+            }
             // The output still, over the player's picture while paused.
             Rectangle {
                 anchors.fill: parent
@@ -304,7 +329,8 @@ Dock {
                     text: {
                         if (!root.showsStill)
                             return (root.playsOutput ? "Output · " : "Source · ") + Format.precise(root.position)
-                                   + (root.stillMode && root.playerView === "output" ? " · pause to see the output" : "");
+                                   + (root.stillMode && root.playerView === "output" ? " · pause to see the output" : "")
+                                   + (root.mode === "compare" && root.playing ? " · pause to compare" : "");
                         if (job.outputStillError !== "" && still.ready)
                             return "Output · couldn't update: " + job.outputStillError;
                         return "Output · " + Format.precise(job.outputStillTime >= 0 ? job.outputStillTime : root.position)

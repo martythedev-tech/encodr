@@ -801,6 +801,17 @@ QStringList videoChain(const Preset &p, const MediaInfo &info, double start, QSt
 }
 }
 
+Reference referencePicture(const Preset &p, const MediaInfo &info, const QString &input, double start, double length) {
+    Reference r;
+    r.inputs = inputArguments(p, info, input, start, length, true);
+    r.inputCount = p.joinsByFilter() ? int(p.joinClips.size()) : 1;
+    QStringList notes;
+    const QStringList chain = videoChain(p, info, start, notes);
+    r.graph = (p.joinsByFilter() ? joinGraph(p, info, true, false) + ";[jv]" : QString("[0:v:0]"))
+              + (chain.isEmpty() ? QString("null") : chain.join(',')) + "[ref]";
+    return r;
+}
+
 QString rewrapReason(const MediaInfo &info, const QString &path) {
     const QString extension = QFileInfo(path).suffix().toLower();
     if (!info.valid || !info.hasVideo || extension == "mp4" || extension == "m4v")

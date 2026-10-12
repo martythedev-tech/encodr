@@ -21,6 +21,7 @@
         <file alias="Icon.qml">Icon.qml</file>
         <file alias="Format.js">Format.js</file>
         <file alias="Timeline.qml">Timeline.qml</file>
+        <file alias="WipeView.qml">WipeView.qml</file>
         <file alias="encodr.svg">../pkgbuild/encodr.svg</file>
         <file alias="encodr.desktop">../pkgbuild/encodr.desktop</file>
     </qresource>

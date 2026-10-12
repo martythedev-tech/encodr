@@ -301,6 +301,14 @@ void Backend::setNamePattern(const QString &pattern) {
     emit settingsChanged();
 }
 
+void Backend::setCheckAfter(bool on) {
+    if (on == m_checkAfter)
+        return;
+    m_checkAfter = on;
+    saveConfig();
+    emit settingsChanged();
+}
+
 void Backend::setGpuEnabled(bool on) {
     if (on == m_gpuEnabled)
         return;
@@ -527,6 +535,8 @@ void Backend::startNext() {
 void Backend::onJobFinished(Job *job, bool ok) {
     if (ok)
         emit outputWritten(job->outputPath());
+    if (ok && m_checkAfter)
+        job->checkQuality();
     if (ok) {
         const int seconds = int(job->elapsed() + 0.5);
         const QString took = seconds >= 3600 ? QString("%1 h %2 min").arg(seconds / 3600).arg(seconds % 3600 / 60)
@@ -810,6 +820,7 @@ void Backend::loadConfig() {
     m_namePattern = naming::clean(settings.value("namePattern").toString(naming::kDefault));
     m_gpuEnabled = settings.value("gpuEncoding").toBool(false);
     m_parallel = settings.value("parallel").toInt(0);
+    m_checkAfter = settings.value("checkAfter").toBool(false);
 
     m_userPresets.clear();
     const QJsonObject presets = readJson(m_configDir + "/presets.json");
@@ -825,7 +836,7 @@ void Backend::saveConfig() const {
     writeJson(m_configDir + "/settings.json", QJsonObject{
         {"defaultPreset", m_defaultPreset}, {"outputMode", m_outputMode}, {"outputFolder", m_outputFolder},
         {"namePattern", m_namePattern},
-        {"gpuEncoding", m_gpuEnabled}, {"parallel", m_parallel}});
+        {"gpuEncoding", m_gpuEnabled}, {"parallel", m_parallel}, {"checkAfter", m_checkAfter}});
 }
 
 void Backend::savePresets() const {

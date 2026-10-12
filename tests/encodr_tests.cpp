@@ -18,6 +18,7 @@
 #include "appmenu.h"
 #include "analysis.h"
 #include "naming.h"
+#include "quality.h"
 
 #include <atomic>
 #include <thread>
@@ -1326,6 +1327,162 @@ private slots:
         QCOMPARE(job.padMode(), QString("9:16"));
         job.setPadMode("off");
         QVERIFY(!job.runPreset().pads());
+    }
+
+    void qualityParsesAndPlans() {
+        // libvmaf's log: every 2nd frame scored at 25 fps; one weak second.
+        QByteArray json = "{\"frames\":[";
+        for (int n = 0; n < 250; n += 2)
+            json += QByteArray(n ? "," : "") + "{\"frameNum\":" + QByteArray::number(n) + ",\"metrics\":{\"vmaf\":"
+                    + (n >= 100 && n < 125 ? "70.0" : "95.0") + "}}";
+        json += "],\"pooled_metrics\":{}}";
+        quality::Result r = quality::parseVmafLog(json, 25);
+        QCOMPARE(r.scores.size(), 125);
+        QCOMPARE(r.subsample, 2);
+        QCOMPARE(r.times[1], 0.08);
+        QCOMPARE(r.min, 70.0);
+        QCOMPARE(r.low, 70.0);
+        QVERIFY(r.mean > 91 && r.mean < 93);
+        QCOMPARE(r.worst.first().time, 4.0);    // frames 100-124 are second 4
+        QCOMPARE(r.worst.first().score, 70.0);
+        for (int i = 1; i < r.worst.size(); ++i)
+            QVERIFY(std::abs(r.worst[i].time - 4.0) >= 3);
+        r.tool = quality::Tool::LibVmaf;
+        QVERIFY(quality::verdict(r).startsWith("Very good"));
+        QVERIFY(quality::verdict(r).contains("Some moments dip"));
+
+        const quality::Result ssim = quality::parseSsimLog(
+            "n:1 Y:0.991 U:0.995 V:0.996 All:0.993 (21.5)\nn:2 Y:0.981 U:0.99 V:0.99 All:0.985 (18.2)\n", 50);
+        QCOMPARE(ssim.scores, (QList<double>{99.3, 98.5}));
+        QCOMPARE(ssim.times, (QList<double>{0, 0.02}));
+        QVERIFY(quality::verdict(ssim).startsWith("Very good"));
+
+        QCOMPARE(quality::subsampleFor(1000), 1);
+        QCOMPARE(quality::subsampleFor(172800), 9);    // two hours at 24 fps
+        QCOMPARE(quality::parseStreamHashes("0,a,MD5=abc\n1,a,MD5=def\n"), (QStringList{"abc", "def"}));
+
+        // The reference is the source through the same processing as the copy.
+        const MediaInfo source = parseProbe(kKiPro, "/x/in.mov");    // 1280×720
+        Preset p = presetNamed("share");
+        p.cropTop = p.cropBottom = 40;
+        MediaInfo out;
+        out.width = 1280;
+        out.height = 640;
+        out.fps = 25;
+        out.fpsRational = "25/1";
+        out.pixelFormat = "yuv420p";
+        QString joined = quality::measureArguments(quality::Tool::LibVmaf, p, source, "/x/in.mov", 10, 20, "/y/out.mp4", out,
+                                                   "/c/q.json", 8, 2).join(' ');
+        QVERIFY2(joined.contains("-ss 10.000 -i /x/in.mov -t 20.000 -i /y/out.mp4"), qPrintable(joined));
+        QVERIFY2(joined.contains("[0:v:0]crop=1280:640:0:40[ref];[ref]setpts=PTS-STARTPTS,fps=25/1,scale=1280:640:flags=bicubic,"
+                                 "format=yuv420p[r];[1:v:0]setpts=PTS-STARTPTS,fps=25/1,format=yuv420p[d];"
+                                 "[d][r]libvmaf=log_fmt=json:log_path=/c/q.json:n_threads=8:n_subsample=2"), qPrintable(joined));
+        QVERIFY(joined.endsWith("-map [q] -f null -"));
+        if (!quality::modelPath(640).isEmpty())
+            QVERIFY(joined.contains(":model='path=" + quality::modelPath(640) + "'"));
+        joined = quality::measureArguments(quality::Tool::Ssim, p, source, "/x/in.mov", -1, -1, "/y/out.mp4", out,
+                                           "/c/q.log", 8, 1).join(' ');
+        QVERIFY(joined.contains("[d][r]ssim=stats_file=/c/q.log[q]"));
+        const QString tool = quality::vmafToolArguments("/c/r.y4m", "/c/d.y4m", "/c/q.json", 2160, 4, 3).join(' ');
+        QVERIFY2(tool.startsWith("--reference /c/r.y4m --distorted /c/d.y4m --threads 4 --subsample 3 --json --output /c/q.json"),
+                 qPrintable(tool));
+        QVERIFY(tool.contains("vmaf_4k_v0.6.1"));
+        out.pixelFormat = "yuv420p10le";
+        QCOMPARE(quality::comparisonFormat(out), QString("yuv420p10le"));
+
+        // Audio that should be bit-exact, and why the rest isn't compared.
+        QVERIFY(quality::planAudio(presetNamed("wav"), source, false)[0].reason.contains("Two mono tracks"));
+        MediaInfo stereo = source;
+        stereo.audio = {AudioTrack{0, "pcm_s24le", 48000, 2, "stereo", {}, 24}};
+        Preset wav = presetNamed("wav");
+        QList<quality::AudioPlan> plans = quality::planAudio(wav, stereo, false);    // 24-bit PCM to 24-bit WAV
+        QCOMPARE(plans.size(), 1);
+        QVERIFY2(plans[0].compare, qPrintable(plans[0].reason));
+        QVERIFY(!quality::planAudio(wav, stereo, true)[0].compare);
+        Preset short16 = wav;
+        short16.audio = "pcm16";
+        QCOMPARE(quality::planAudio(short16, stereo, false)[0].reason, QString("Stored at 16-bit from a 24-bit source."));
+        Preset review = presetNamed("review");
+        plans = quality::planAudio(review, stereo, false);
+        QVERIFY(!plans.isEmpty() && !plans[0].compare && plans[0].reason.contains("lossy by design"));
+        Preset loud = wav;
+        loud.loudness = "ebu";
+        QCOMPARE(quality::planAudio(loud, stereo, false)[0].reason, QString("Loudness changed on purpose."));
+        QVERIFY(quality::planAudio(presetNamed("copy"), stereo, false)[0].compare);
+
+        const QString text = quality::report({{"measured", true}, {"metric", "VMAF"}, {"tool", "the vmaf tool"}, {"mean", 94.5},
+                                              {"low", 90.25}, {"min", 88.0}, {"subsample", 1}, {"verdict", "Excellent."},
+                                              {"worst", QVariantList{QVariantMap{{"time", 3725.0}, {"score", 88.5}}}},
+                                              {"audio", QVariantList{QVariantMap{{"track", 0}, {"text", "Bit-exact."}}}}},
+                                             {"Source:    /x/in.mov"});
+        QVERIFY2(text.contains("Average   94.50") && text.contains("Worst 1%  90.25 and below") && text.contains("1:02:05  88.50")
+                 && text.contains("Track 1: Bit-exact.") && text.contains("Source:    /x/in.mov"), qPrintable(text));
+    }
+
+    // A real conversion, cropped (so the reference has to be processed the
+    // same way to score well), checked with each tool this machine has.
+    void qualityCheckForReal() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        QProcess make;
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=3",
+                              "-f", "lavfi", "-i", "sine=frequency=440:duration=3:sample_rate=48000", "-c:v", "libx264",
+                              "-crf", "0", "-pix_fmt", "yuv420p", "-c:a", "pcm_s24le", "-shortest", dir.filePath("src.mov")});
+        QVERIFY(make.waitForFinished(30000));
+        QCOMPARE(make.exitCode(), 0);
+
+        Job job(1, dir.filePath("src.mov"));
+        Preset p = presetNamed("review");
+        p.container = "mkv";
+        p.audio = "flac";    // lossless from 24-bit PCM: should be bit-exact
+        p.speed = "ultrafast";
+        job.setPreset(p);
+        job.setOutputFolder(dir.filePath("out"));
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        job.setCropMargins(0, 20, 0, 20);
+        QSignalSpy finished(&job, &Job::finished);
+        QVERIFY(job.start());
+        QVERIFY(finished.wait(60000));
+        QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+
+        QStringList tools{"ssim"};
+        QProcess filters;
+        filters.start("ffmpeg", {"-hide_banner", "-filters"});
+        filters.waitForFinished(10000);
+        if (filters.readAllStandardOutput().contains(" libvmaf "))
+            tools << "libvmaf";
+        if (hasTool("vmaf") && !quality::modelPath(140).isEmpty())
+            tools << "vmaf";
+        for (const QString &tool : tools) {
+            qputenv("ENCODR_QUALITY_TOOL", tool.toUtf8());
+            job.checkQuality();
+            QCOMPARE(job.qualityState(), QString("checking"));
+            QTRY_VERIFY_WITH_TIMEOUT(job.qualityState() != "checking", 60000);
+            QVERIFY2(job.qualityState() == "done", qPrintable(tool + ": " + job.qualityStep()));
+            const QVariantMap q = job.quality();
+            QCOMPARE(q.value("metric").toString(), QString(tool == "ssim" ? "SSIM" : "VMAF"));
+            // High: the copy is measured against the cropped source.
+            QVERIFY2(q.value("mean").toDouble() > 90, qPrintable(tool + " " + q.value("mean").toString()));
+            QVERIFY(!q.value("curve").toList().isEmpty());
+            const QVariantMap audio = q.value("audio").toList().value(0).toMap();
+            QCOMPARE(audio.value("state").toString(), QString("exact"));
+        }
+        qunsetenv("ENCODR_QUALITY_TOOL");
+
+        const QString report = job.saveQualityReport();
+        QVERIFY(report.endsWith("src_review.quality.txt"));
+        QFile f(report);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QString text = QString::fromUtf8(f.readAll());
+        QVERIFY2(text.contains("Bit-exact") && text.contains("Preset:    Review copy"), qPrintable(text));
+
+        // A frame of the finished file for the wipe.
+        QSignalSpy still(&job, &Job::finishedStillChanged);
+        job.showFinishedAt(1.0);
+        QVERIFY(still.wait(20000));
+        QCOMPARE(QImage(job.finishedStill()).size(), QSize(320, 140));
     }
 
     void av1AndFfv1() {

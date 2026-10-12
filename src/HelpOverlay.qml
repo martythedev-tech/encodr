@@ -11,7 +11,7 @@ Rectangle {
     readonly property var keys: [
         ["Space", "Start the queue, or pause / resume the current file"],
         ["O", "Add files (or drag them onto the window)"],
-        ["V", "Preview: output, source, or side by side"], ["P", "Play or pause the preview"], ["[  ]", "Set the in / out point at the playhead"],
+        ["V", "Preview: output, source, side by side, or compare (after converting)"], ["P", "Play or pause the preview"], ["[  ]", "Set the in / out point at the playhead"],
             ["← →", "Back / forward one second"], [",  .", "Back / forward one frame"],
         ["C", "Stop the current file"],
         ["R", "Convert the selected file again"],

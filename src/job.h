@@ -81,6 +81,19 @@ class Job : public QObject {
     Q_PROPERTY(double outputStillTime READ outputStillTime NOTIFY outputStillChanged)
     Q_PROPERTY(bool outputStillBusy READ outputStillBusy NOTIFY outputStillChanged)
     Q_PROPERTY(QString outputStillError READ outputStillError NOTIFY outputStillChanged)
+    // The check after converting (see quality.h): "", "checking", "done" or
+    // "failed"; what it's doing, how far, and what it found:
+    // {measured, metric, tool, mean, min, low, verdict, subsample, worst:
+    // [{time, score}], curve: [score…], videoNote, audio: [{track, state,
+    // text}], report}.
+    Q_PROPERTY(QString qualityState READ qualityState NOTIFY qualityChanged)
+    Q_PROPERTY(QString qualityStep READ qualityStep NOTIFY qualityChanged)
+    Q_PROPERTY(double qualityPercent READ qualityPercent NOTIFY qualityChanged)
+    Q_PROPERTY(QVariantMap quality READ quality NOTIFY qualityChanged)
+    // A frame of the finished file, for comparing with the Output still.
+    Q_PROPERTY(QString finishedStill READ finishedStill CONSTANT)
+    Q_PROPERTY(int finishedStillStamp READ finishedStillStamp NOTIFY finishedStillChanged)
+    Q_PROPERTY(double finishedStillTime READ finishedStillTime NOTIFY finishedStillChanged)
     // Thumbnails across the whole source, for the timeline.
     Q_PROPERTY(QString strip READ strip CONSTANT)
     Q_PROPERTY(int stripCount READ stripCount CONSTANT)
@@ -185,6 +198,18 @@ public:
     double outputStillTime() const { return m_stillTime; }
     bool outputStillBusy() const { return m_stillBusy || m_stillTimer.isActive(); }
     QString outputStillError() const { return m_stillError; }
+    QString qualityState() const { return m_qualityState; }
+    QString qualityStep() const { return m_qualityStep; }
+    double qualityPercent() const { return m_qualityPercent; }
+    QVariantMap quality() const { return m_quality; }
+    Q_INVOKABLE void checkQuality();
+    Q_INVOKABLE void stopQualityCheck();
+    // Writes the check as a text file beside the output; returns its path.
+    Q_INVOKABLE QString saveQualityReport();
+    QString finishedStill() const { return m_finishedStill; }
+    int finishedStillStamp() const { return m_finishedStamp; }
+    double finishedStillTime() const { return m_finishedTime; }
+    Q_INVOKABLE void showFinishedAt(double seconds);
     Q_INVOKABLE void showOutputAt(double seconds);
     QString strip() const { return m_strip; }
     int stripCount() const { return 16; }
@@ -290,6 +315,8 @@ signals:
     void padChanged();
     void subtitlesChanged();
     void outputStillChanged();
+    void qualityChanged();
+    void finishedStillChanged();
 
 private:
     bool launch();    // starts ffmpeg; start() checks first
@@ -357,6 +384,22 @@ private:
     int m_stillStamp = 0;
     bool m_stillBusy = false;
     QString m_stillError;
+    QString m_qualityState;
+    QString m_qualityStep;
+    double m_qualityPercent = 0;
+    QVariantMap m_quality;
+    MediaInfo m_outputInfo;
+    QList<QPointer<QProcess>> m_qualityProcesses;
+    void measurePicture();
+    void checkAudio();
+    void finishQuality(const QString &failure = {});
+    QProcess *qualityProcess();
+    QString m_finishedStill;
+    double m_finishedWanted = -1;
+    double m_finishedTime = -1;
+    int m_finishedStamp = 0;
+    bool m_finishedBusy = false;
+    void makeFinishedStill();
 
     QPointer<QProcess> m_process;
     QPointer<QProcess> m_helper;

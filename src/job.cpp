@@ -1,7 +1,9 @@
 #include "job.h"
 #include "naming.h"
+#include "quality.h"
 
 #include <algorithm>
+#include <memory>
 
 #include <QHash>
 
@@ -12,8 +14,10 @@
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QStorageInfo>
+#include <QThread>
 #include <QTimer>
 #include <signal.h>
+#include <sys/stat.h>
 
 namespace {
 constexpr int kHistoryLimit = 720;         // points kept per graph; older ones are merged
@@ -38,6 +42,7 @@ Job::Job(int id, const QString &inputPath, QObject *parent)
     m_previewSource = stem + "-source.jpg";
     m_strip = stem + "-strip.jpg";
     m_outputStill = stem + "-output-still.jpg";
+    m_finishedStill = stem + "-finished-still.jpg";
     m_stillTimer.setSingleShot(true);
     m_stillTimer.setInterval(120);
     connect(&m_stillTimer, &QTimer::timeout, this, &Job::makeOutputStill);
@@ -73,6 +78,9 @@ Job::~Job() {
         QFile::remove(m_subtitleLink + name);
     QFile::remove(m_subtitleLink + "-source." + QFileInfo(m_input).suffix().toLower());
     QFile::remove(m_subtitleLink + "-join.txt");
+    QFile::remove(m_finishedStill);
+    for (const QString &name : {"-quality.log", "-quality.json", "-reference.y4m", "-output.y4m"})
+        QFile::remove(m_subtitleLink + name);
 }
 
 QString Job::fileName() const {
@@ -681,6 +689,321 @@ void Job::makeOutputStill() {
     process->start("ffmpeg", args);
 }
 
+namespace {
+// How the picture gets measured here: ffmpeg's libvmaf if it has it, else
+// the vmaf tool, else SSIM. Looked up once; ENCODR_QUALITY_TOOL (libvmaf,
+// vmaf, ssim) picks one instead, for tests.
+quality::Tool qualityTool() {
+    const QByteArray forced = qgetenv("ENCODR_QUALITY_TOOL");
+    if (forced == "libvmaf")
+        return quality::Tool::LibVmaf;
+    if (forced == "vmaf")
+        return quality::Tool::VmafCli;
+    if (forced == "ssim")
+        return quality::Tool::Ssim;
+    static int found = -1;
+    if (found < 0) {
+        QProcess p;
+        p.start("ffmpeg", {"-hide_banner", "-filters"});
+        p.waitForFinished(5000);
+        if (p.readAllStandardOutput().contains(" libvmaf "))
+            found = int(quality::Tool::LibVmaf);
+        else if (!QStandardPaths::findExecutable("vmaf").isEmpty())
+            found = int(quality::Tool::VmafCli);
+        else
+            found = int(quality::Tool::Ssim);
+    }
+    return quality::Tool(found);
+}
+
+QString lastLine(const QByteArray &bytes) {
+    const QStringList lines = QString::fromUtf8(bytes).trimmed().split('\n');
+    return lines.isEmpty() ? QString() : lines.last().trimmed();
+}
+}
+
+QProcess *Job::qualityProcess() {
+    auto *process = new QProcess(this);
+    m_qualityProcesses << process;
+    return process;
+}
+
+void Job::checkQuality() {
+    if (m_state != "done" || m_qualityState == "checking" || !QFileInfo::exists(outputPath()))
+        return;
+    m_quality.clear();
+    m_qualityState = "checking";
+    m_qualityStep = "Reading the converted file…";
+    m_qualityPercent = 0;
+    emit qualityChanged();
+    QProcess *probe = qualityProcess();
+    connect(probe, &QProcess::finished, this, [this, probe](int, QProcess::ExitStatus) {
+        probe->deleteLater();
+        if (m_qualityState != "checking")
+            return;
+        m_outputInfo = parseProbe(probe->readAllStandardOutput(), outputPath());
+        if (!m_outputInfo.valid)
+            return finishQuality("Couldn't read the converted file.");
+        measurePicture();
+    });
+    probe->start("ffprobe", {"-v", "error", "-print_format", "json", "-show_format", "-show_streams", outputPath()});
+}
+
+void Job::stopQualityCheck() {
+    for (const QPointer<QProcess> &p : std::as_const(m_qualityProcesses))
+        if (p) {
+            p->disconnect(this);
+            p->kill();
+            p->waitForFinished(1000);
+            p->deleteLater();
+        }
+    m_qualityProcesses.clear();
+    if (m_qualityState == "checking") {
+        m_qualityState.clear();
+        emit qualityChanged();
+    }
+}
+
+void Job::measurePicture() {
+    const Preset p = runPreset();
+    if (!m_outputInfo.hasVideo || p.audioOnly()) {
+        m_quality["videoNote"] = "No picture to compare.";
+        return checkAudio();
+    }
+    if (p.copiesVideo()) {
+        m_quality["videoNote"] = "Video copied as it is: identical to the source, nothing lost.";
+        return checkAudio();
+    }
+    linkSubtitles();    // the LUT, logo and subtitle files under the names the filters read
+    const bool cut = trimmed();
+    const double start = cut ? m_trimIn : -1, len = cut ? length() : -1;
+    const MediaInfo source = runInfo();
+    const quality::Tool tool = qualityTool();
+    const int threads = std::max(1, QThread::idealThreadCount());
+    const double fps = m_outputInfo.fps > 0 ? m_outputInfo.fps : 25;
+    const int subsample = tool == quality::Tool::Ssim ? 1 : quality::subsampleFor(qint64(length() * fps));
+    const double total = std::max(0.1, length());
+    m_qualityStep = QString("Measuring the picture (%1)…").arg(quality::metricName(tool));
+    emit qualityChanged();
+
+    auto progress = [this, total](QProcess *process) {
+        connect(process, &QProcess::readyReadStandardOutput, this, [this, process, total] {
+            while (process->canReadLine()) {
+                const QByteArray line = process->readLine().trimmed();
+                if (line.startsWith("out_time_us=")) {
+                    m_qualityPercent = std::clamp(line.mid(12).toDouble() / 1e6 / total * 100, 0.0, 99.0);
+                    emit qualityChanged();
+                }
+            }
+        });
+    };
+    auto store = [this, tool](const quality::Result &r) {
+        if (!r.valid())
+            return finishQuality("The measurement gave no scores.");
+        m_quality["measured"] = true;
+        m_quality["metric"] = quality::metricName(tool);
+        m_quality["tool"] = quality::toolName(tool);
+        m_quality["mean"] = r.mean;
+        m_quality["min"] = r.min;
+        m_quality["low"] = r.low;
+        m_quality["subsample"] = r.subsample;
+        m_quality["verdict"] = quality::verdict(r);
+        QVariantList worst;
+        for (const quality::Moment &m : r.worst)
+            worst << QVariantMap{{"time", m.time}, {"score", m.score}};
+        m_quality["worst"] = worst;
+        // The curve for the graph, at most 300 points.
+        QVariantList curve;
+        const int step = std::max<int>(1, int((r.scores.size() + 299) / 300));
+        for (int i = 0; i < r.scores.size(); i += step) {
+            double sum = 0;
+            int n = 0;
+            for (int j = i; j < std::min<int>(i + step, r.scores.size()); ++j, ++n)
+                sum += r.scores[j];
+            curve << sum / n;
+        }
+        m_quality["curve"] = curve;
+        checkAudio();
+    };
+
+    const QString log = m_subtitleLink + (tool == quality::Tool::Ssim ? "-quality.log" : "-quality.json");
+    QFile::remove(log);
+    if (tool != quality::Tool::VmafCli) {
+        QProcess *process = qualityProcess();
+        progress(process);
+        connect(process, &QProcess::finished, this, [this, process, log, tool, fps, store](int code, QProcess::ExitStatus status) {
+            process->deleteLater();
+            if (m_qualityState != "checking")
+                return;
+            if (status != QProcess::NormalExit || code != 0)
+                return finishQuality("ffmpeg couldn't measure the picture: " + lastLine(process->readAllStandardError()));
+            QFile f(log);
+            if (!f.open(QIODevice::ReadOnly))
+                return finishQuality("The measurement left no scores.");
+            store(tool == quality::Tool::Ssim ? quality::parseSsimLog(f.readAll(), fps) : quality::parseVmafLog(f.readAll(), fps));
+        });
+        process->start("ffmpeg", quality::measureArguments(tool, p, source, m_input, start, len, outputPath(),
+                                                           m_outputInfo, log, threads, subsample));
+        return;
+    }
+
+    // The vmaf tool reads two y4m streams: the reference and the output,
+    // each written into a pipe by an ffmpeg of its own.
+    const QString refPipe = m_subtitleLink + "-reference.y4m", outPipe = m_subtitleLink + "-output.y4m";
+    for (const QString &pipe : {refPipe, outPipe}) {
+        QFile::remove(pipe);
+        if (::mkfifo(QFile::encodeName(pipe).constData(), 0600) != 0)
+            return finishQuality("Couldn't make the pipes for the vmaf tool.");
+    }
+    QProcess *vmaf = qualityProcess();
+    QProcess *reference = qualityProcess();
+    QProcess *output = qualityProcess();
+    progress(reference);
+    auto failed = [this](QProcess *process, const QString &what) {
+        connect(process, &QProcess::finished, this, [this, process, what](int code, QProcess::ExitStatus status) {
+            if (m_qualityState == "checking" && (status != QProcess::NormalExit || code != 0))
+                finishQuality(what + lastLine(process->readAllStandardError()));
+        });
+    };
+    failed(reference, "ffmpeg couldn't read the source for comparing: ");
+    failed(output, "ffmpeg couldn't read the converted file for comparing: ");
+    connect(vmaf, &QProcess::finished, this, [this, vmaf, log, fps, store](int code, QProcess::ExitStatus status) {
+        if (m_qualityState != "checking")
+            return;
+        if (status != QProcess::NormalExit || code != 0)
+            return finishQuality("The vmaf tool stopped: " + lastLine(vmaf->readAll()));
+        QFile f(log);
+        if (!f.open(QIODevice::ReadOnly))
+            return finishQuality("The vmaf tool left no scores.");
+        store(quality::parseVmafLog(f.readAll(), fps));
+    });
+    vmaf->setProcessChannelMode(QProcess::MergedChannels);
+    vmaf->start("vmaf", quality::vmafToolArguments(refPipe, outPipe, log, m_outputInfo.height, threads, subsample));
+    reference->start("ffmpeg", quality::referenceY4mArguments(p, source, m_input, start, len, m_outputInfo, refPipe));
+    output->start("ffmpeg", quality::outputY4mArguments(outputPath(), m_outputInfo, outPipe));
+}
+
+void Job::checkAudio() {
+    if (m_qualityState != "checking")
+        return;
+    const QList<quality::AudioPlan> plans = quality::planAudio(runPreset(), runInfo(), trimmed());
+    QVariantList audio;
+    QList<int> compared;
+    for (const quality::AudioPlan &plan : plans) {
+        audio << QVariantMap{{"track", plan.track}, {"state", plan.compare ? "pending" : "skipped"},
+                             {"text", plan.compare ? QString() : plan.reason}};
+        if (plan.compare)
+            compared << plan.track;
+    }
+    m_quality["audio"] = audio;
+    if (compared.isEmpty())
+        return finishQuality();
+    m_qualityStep = "Comparing the audio sample by sample…";
+    m_qualityPercent = 99;
+    emit qualityChanged();
+    // Both files hashed side by side; the comparison waits for the second.
+    auto hashes = std::make_shared<QList<QStringList>>(QList<QStringList>{{}, {}});
+    auto pending = std::make_shared<int>(2);
+    const QStringList files{m_input, outputPath()};
+    for (int side = 0; side < 2; ++side) {
+        QProcess *process = qualityProcess();
+        connect(process, &QProcess::finished, this, [this, process, side, hashes, pending, compared](int, QProcess::ExitStatus) {
+            process->deleteLater();
+            (*hashes)[side] = quality::parseStreamHashes(process->readAllStandardOutput());
+            if (--*pending > 0 || m_qualityState != "checking")
+                return;
+            QVariantList audio = m_quality.value("audio").toList();
+            for (int i = 0; i < audio.size(); ++i) {
+                QVariantMap a = audio[i].toMap();
+                const int at = int(compared.indexOf(a.value("track").toInt()));
+                if (at < 0)
+                    continue;
+                const QString src = at < (*hashes)[0].size() ? (*hashes)[0][at] : QString();
+                const QString out = at < (*hashes)[1].size() ? (*hashes)[1][at] : QString();
+                const bool same = !src.isEmpty() && src == out;
+                a["state"] = same ? "exact" : "differs";
+                a["text"] = same ? "Bit-exact: every sample matches the source."
+                                 : src.isEmpty() || out.isEmpty() ? "Couldn't be read for comparing."
+                                                                  : "Differs from the source, though it should match.";
+                audio[i] = a;
+            }
+            m_quality["audio"] = audio;
+            finishQuality();
+        });
+        process->start("ffmpeg", quality::audioHashArguments(files[side], compared));
+    }
+}
+
+void Job::finishQuality(const QString &failure) {
+    for (const QPointer<QProcess> &p : std::as_const(m_qualityProcesses))
+        if (p) {
+            p->disconnect(this);
+            if (p->state() != QProcess::NotRunning)
+                p->kill();
+            p->deleteLater();
+        }
+    m_qualityProcesses.clear();
+    for (const QString &name : {"-reference.y4m", "-output.y4m"})
+        QFile::remove(m_subtitleLink + name);
+    m_qualityState = failure.isEmpty() ? "done" : "failed";
+    m_qualityStep = failure;
+    m_qualityPercent = failure.isEmpty() ? 100 : 0;
+    if (failure.isEmpty())
+        m_quality["report"] = quality::report(m_quality, {});
+    emit qualityChanged();
+}
+
+QString Job::saveQualityReport() {
+    if (m_qualityState != "done")
+        return {};
+    const QFileInfo out(outputPath());
+    const QString path = out.absolutePath() + "/" + out.completeBaseName() + ".quality.txt";
+    QStringList header{"Source:    " + m_input, "Converted: " + outputPath(),
+                       "Preset:    " + m_preset.name, "Checked:   " + QDateTime::currentDateTime().toString(Qt::ISODate)};
+    if (joined())
+        header << QString("Joined:    %1 clips").arg(clipCount());
+    if (trimmed())
+        header << QString("Trimmed:   %1 s to %2 s of the source").arg(m_trimIn, 0, 'f', 2).arg(trimOut(), 0, 'f', 2);
+    if (m_outputInfo.valid)
+        header << "Output:    " + m_outputInfo.summary();
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return {};
+    f.write(quality::report(m_quality, header).toUtf8());
+    return path;
+}
+
+void Job::showFinishedAt(double seconds) {
+    if (m_state != "done")
+        return;
+    m_finishedWanted = std::max(0.0, seconds);
+    makeFinishedStill();
+}
+
+void Job::makeFinishedStill() {
+    if (m_finishedBusy || m_finishedWanted < 0)
+        return;    // a running one picks the latest request up when it ends
+    const double at = m_finishedWanted;
+    m_finishedWanted = -1;
+    m_finishedBusy = true;
+    auto *process = new QProcess(this);
+    connect(process, &QProcess::finished, this, [this, process, at](int code, QProcess::ExitStatus status) {
+        process->deleteLater();
+        m_finishedBusy = false;
+        if (status == QProcess::NormalExit && code == 0 && QFileInfo::exists(m_finishedStill)) {
+            m_finishedTime = at;
+            ++m_finishedStamp;
+            emit finishedStillChanged();
+        }
+        makeFinishedStill();
+    });
+    // Sized and ranged like the Output still, so the two line up.
+    process->start("ffmpeg", {"-nostdin", "-hide_banner", "-y", "-loglevel", "error", "-ss", QString::number(at, 'f', 3),
+                              "-i", outputPath(), "-frames:v", "1", "-vf",
+                              "scale=-2:'min(ih,1080)':flags=bicubic:out_range=full,format=yuvj420p",
+                              "-q:v", "3", "-update", "1", m_finishedStill});
+}
+
 void Job::makeStrip() {
     if (!m_info.hasVideo || m_info.duration <= 0)
         return;
@@ -906,6 +1229,10 @@ void Job::cancel() {
 void Job::reset() {
     if (isActive() || !m_info.valid)
         return;
+    stopQualityCheck();
+    m_qualityState.clear();
+    m_quality.clear();
+    emit qualityChanged();
     m_finalPath.clear();
     m_estimate = Estimate();
     m_last = ProgressSample();

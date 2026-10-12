@@ -156,6 +156,17 @@ Command buildCommand(const Preset &preset, const MediaInfo &info, const QString 
 QStringList outputStillArguments(const Preset &preset, const MediaInfo &info, const QString &input, double at,
                                  const QString &jpeg, int height = 1080);
 
+// The source's picture through the conversion's own processing, for
+// comparing with what came out: the inputs (as the conversion reads them,
+// trimmed or joined), how many, and a graph ending in [ref].
+struct Reference {
+    QStringList inputs;
+    int inputCount = 1;
+    QString graph;
+};
+Reference referencePicture(const Preset &preset, const MediaInfo &info, const QString &input,
+                           double start = -1, double length = -1);
+
 // When the source's video and audio already fit an MP4 that plays anywhere
 // (H.264 or HEVC with AAC or MP3, in MKV, MOV or the like), the rewrap
 // preset makes one in seconds: a plain-language reason why, else empty.

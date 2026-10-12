@@ -11,7 +11,8 @@ ScrollView {
     readonly property bool tip: job !== null && job.suggestion.presetId !== undefined
                                 && job.state !== "running" && job.state !== "paused" && job.state !== "done"
     property string savedEdl: ""
-    onJobChanged: savedEdl = ""
+    property string savedReport: ""
+    onJobChanged: { savedEdl = ""; savedReport = ""; }
 
     function kindColor(kind) {
         return kind === "black" ? theme.dim : kind === "freeze" ? theme.bad : kind === "silence" ? theme.warn : theme.foreground;
@@ -62,6 +63,146 @@ ScrollView {
             text: "Reading the file…"
             color: theme.dim
             font.pixelSize: 14
+        }
+
+        // After converting: how much the picture lost, and whether audio
+        // that should be bit-exact is.
+        Section {
+            title: "Quality"
+            visible: job !== null && job.state === "done"
+            Text {
+                visible: job !== null && job.qualityState === ""
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                color: theme.dim
+                font.pixelSize: 12
+                text: "Measure the copy against the source run through the same processing, so only what the encoder lost "
+                      + "counts: VMAF for the picture, and a sample-by-sample check of audio that should match exactly."
+            }
+            RowLayout {
+                visible: job !== null && job.qualityState === "checking"
+                Layout.fillWidth: true
+                spacing: 10
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Text { text: job ? job.qualityStep : ""; color: theme.foreground; font.pixelSize: 12 }
+                    Meter { Layout.fillWidth: true; implicitHeight: 4; value: job ? job.qualityPercent : 0; barColor: theme.accent }
+                }
+                UiButton { text: "Stop"; kind: "ghost"; onClicked: job.stopQualityCheck() }
+            }
+            Text {
+                visible: job !== null && job.qualityState === "failed"
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                color: theme.bad
+                font.pixelSize: 12
+                text: job ? job.qualityStep : ""
+            }
+            UiButton {
+                visible: job !== null && (job.qualityState === "" || job.qualityState === "failed")
+                text: job && job.qualityState === "failed" ? "Try again" : "Check quality"
+                onClicked: job.checkQuality()
+            }
+
+            // The results.
+            ColumnLayout {
+                id: results
+                visible: job !== null && job.qualityState === "done"
+                Layout.fillWidth: true
+                spacing: 8
+                readonly property var q: job ? job.quality : ({})
+                RowLayout {
+                    visible: results.q.measured === true
+                    spacing: 18
+                    Repeater {
+                        model: [["Average", "mean"], ["Worst 1%", "low"], ["Lowest", "min"]]
+                        ColumnLayout {
+                            required property var modelData
+                            spacing: 0
+                            Text { text: modelData[0].toUpperCase(); color: theme.dim; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.6 }
+                            Text {
+                                text: job && job.quality[modelData[1]] !== undefined ? Format.number(job.quality[modelData[1]], 1) : "—"
+                                color: theme.foreground
+                                font.pixelSize: modelData[1] === "mean" ? 22 : 16
+                                font.weight: Font.Medium
+                                font.features: { "tnum": 1 }
+                            }
+                        }
+                    }
+                    Text {
+                        Layout.alignment: Qt.AlignBottom
+                        Layout.bottomMargin: 3
+                        text: results.q.metric + (results.q.subsample > 1 ? " · every " + results.q.subsample + "th frame" : "")
+                        color: theme.dim
+                        font.pixelSize: 11
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    color: theme.foreground
+                    font.pixelSize: 12
+                    text: results.q.measured === true ? results.q.verdict : (results.q.videoNote || "")
+                }
+                Graph {
+                    visible: results.q.measured === true
+                    Layout.fillWidth: true
+                    implicitHeight: 84
+                    title: results.q.metric ? results.q.metric + " across the file" : ""
+                    values: results.q.curve || []
+                    floor: 100
+                }
+                Text {
+                    visible: (results.q.worst || []).length > 0
+                    text: "Weakest seconds (click to go there; pick Compare above the player to look closely)"
+                    color: theme.dim
+                    font.pixelSize: 11
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                }
+                Repeater {
+                    model: results.q.worst || []
+                    RowLayout {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        spacing: 12
+                        Text {
+                            text: Format.precise(modelData.time)
+                            color: theme.accent
+                            font.pixelSize: 12
+                            font.features: { "tnum": 1 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.seekRequested(modelData.time) }
+                        }
+                        Text { text: Format.number(modelData.score, 1); color: theme.foreground; font.pixelSize: 12; font.features: { "tnum": 1 } }
+                    }
+                }
+                Repeater {
+                    model: results.q.audio || []
+                    Row2 {
+                        required property var modelData
+                        label: "Audio " + (modelData.track + 1)
+                        value: modelData.text
+                        valueColor: modelData.state === "exact" ? theme.good : modelData.state === "differs" ? theme.bad : theme.dim
+                    }
+                }
+                RowLayout {
+                    spacing: 8
+                    UiButton {
+                        text: "Save report"
+                        onClicked: root.savedReport = job.saveQualityReport()
+                    }
+                    UiButton { text: "Check again"; kind: "ghost"; onClicked: job.checkQuality() }
+                }
+                Text {
+                    visible: root.savedReport !== ""
+                    Layout.fillWidth: true
+                    elide: Text.ElideMiddle
+                    text: "Saved " + root.savedReport
+                    color: theme.dim
+                    font.pixelSize: 11
+                }
+            }
         }
 
         // The clips the queue's Join put together, in the order they play.

@@ -41,6 +41,8 @@ class Backend : public QObject {
     Q_PROPERTY(QObject *hardware READ hardwareObject CONSTANT)
     Q_PROPERTY(bool gpuEnabled READ gpuEnabled WRITE setGpuEnabled NOTIFY settingsChanged)
     Q_PROPERTY(int parallel READ parallel WRITE setParallel NOTIFY settingsChanged)
+    // Run the quality check on each file as soon as it's converted.
+    Q_PROPERTY(bool checkAfter READ checkAfter WRITE setCheckAfter NOTIFY settingsChanged)
     Q_PROPERTY(int autoParallel READ autoParallel CONSTANT)
     Q_PROPERTY(int runningCount READ runningCount NOTIFY queueChanged)
     // Waiting files the queue's Join would put together (2 or more to join).
@@ -75,6 +77,8 @@ public:
     void setHardware(Hardware *hardware);
     QObject *hardwareObject() const;
     bool gpuEnabled() const { return m_gpuEnabled; }
+    bool checkAfter() const { return m_checkAfter; }
+    void setCheckAfter(bool on);
     void setGpuEnabled(bool on);
     // How many files convert at once: 0 means automatic, sized to the machine.
     int parallel() const { return m_parallel; }
@@ -171,6 +175,7 @@ private:
     Hardware *m_hardware = nullptr;
     int m_fileFor = -1;         // the job id a file is being chosen for
     bool m_gpuEnabled = false;
+    bool m_checkAfter = false;
     int m_parallel = 0;
 
     // Removed jobs with the position they came from, for undo.

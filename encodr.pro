@@ -19,7 +19,8 @@ HEADERS += \
     src/theme.h \
     src/appmenu.h \
     src/analysis.h \
-    src/naming.h
+    src/naming.h \
+    src/quality.h
 
 SOURCES += \
     src/main.cpp \
@@ -36,6 +37,7 @@ SOURCES += \
     src/theme.cpp \
     src/appmenu.cpp \
     src/analysis.cpp \
-    src/naming.cpp
+    src/naming.cpp \
+    src/quality.cpp
 
 RESOURCES += src/resources.qrc
