@@ -2249,6 +2249,7 @@ private slots:
         job.cancel();
         QVERIFY(finished.wait(15000));
         QCOMPARE(job.state(), QString("cancelled"));
+        QVERIFY2(job.percent() < 99, qPrintable(QString::number(job.percent())));    // where it stopped, not 100%
         QVERIFY(!QFileInfo::exists(dir.filePath("long_review.mp4")));
         QVERIFY(!QFileInfo::exists(Job::partialPathFor(dir.filePath("long_review.mp4"))));
     }

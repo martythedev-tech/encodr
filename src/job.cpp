@@ -1339,7 +1339,9 @@ void Job::readProgress() {
     }
 
     m_estimate = estimate(length(), m_last.outTime, t, m_last.totalSize, m_recentSpeed);
-    if (m_last.end) {
+    // ffmpeg says "end" whenever it stops, stopped by hand included: only a
+    // run that wasn't stopped is complete.
+    if (m_last.end && !m_cancelling) {
         m_estimate.fraction = 1;
         m_estimate.remaining = 0;
     }
