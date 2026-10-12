@@ -15,6 +15,9 @@ class Hardware : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantList encoders READ encodersVariant NOTIFY changed)
     Q_PROPERTY(bool ready READ ready NOTIFY changed)
+    // Why a GPU that's there couldn't be used, in plain words (an NVIDIA
+    // driver too old for this ffmpeg's NVENC, say); empty when nothing to say.
+    Q_PROPERTY(QStringList problems READ problems NOTIFY changed)
 
 public:
     struct Encoder {
@@ -34,6 +37,7 @@ public:
     bool ready() const { return m_ready; }
     QList<Encoder> encoders() const { return m_encoders; }
     QVariantList encodersVariant() const;
+    QStringList problems() const { return m_problems; }
 
     // The fastest family that passed for this codec, or "" for none.
     QString best(const QString &codec) const;
@@ -52,6 +56,9 @@ public:
     static QStringList parseEncoderList(const QByteArray &output);
     static QStringList testArguments(const QString &id, const QString &codec, const QString &device);
     static QString encoderName(const QString &id, const QString &codec);
+    // What a failed test encode means for the user, or empty when it's just
+    // a GPU that can't do this (ffmpeg's error output).
+    static QString explainFailure(const QString &id, const QByteArray &errors);
 
 signals:
     void changed();
@@ -69,6 +76,7 @@ private:
     QString m_devDir;
     QList<Candidate> m_pending;
     QList<Encoder> m_encoders;
+    QStringList m_problems;
     QStringList m_built;
     bool m_listed = false;
     bool m_ready = false;

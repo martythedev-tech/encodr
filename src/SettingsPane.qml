@@ -711,7 +711,8 @@ ScrollView {
                                     if (!hw || !hw.ready)
                                         return "Looking for GPU encoders…";
                                     if (hw.encoders.length === 0)
-                                        return "No GPU encoder works on this computer, so everything runs on the CPU.";
+                                        return hw.problems.length > 0 ? hw.problems.join(" ") + " Until then, everything runs on the CPU."
+                                                                      : "No GPU encoder works on this computer, so everything runs on the CPU.";
                                     var names = [];
                                     for (var i = 0; i < hw.encoders.length; i++)
                                         names.push(hw.encoders[i].name + " (" + hw.encoders[i].codecs.join(", ").toUpperCase() + ")");

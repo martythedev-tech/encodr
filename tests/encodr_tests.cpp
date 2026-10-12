@@ -866,6 +866,17 @@ private slots:
         QVERIFY(h264.contains("-vf format=nv12 -c:v h264_qsv -profile:v high -f null -"));
     }
 
+    void gpuDetectionExplainsAnOldNvidiaDriver() {
+        const QByteArray err =
+            "[h264_nvenc @ 0x1] Driver does not support the required nvenc API version. Required: 13.1 Found: 13.0\n"
+            "[h264_nvenc @ 0x1] The minimum required Nvidia driver for nvenc is 610.00 or newer\n";
+        QCOMPARE(Hardware::explainFailure("nvenc", err),
+                 QString("NVIDIA GPU found, but this ffmpeg's NVENC needs NVIDIA driver 610 or newer. Update the "
+                         "driver, or use a distribution ffmpeg built for the one installed."));
+        QVERIFY(Hardware::explainFailure("nvenc", "Cannot load libcuda.so.1\n").isEmpty());    // no NVIDIA GPU: nothing to say
+        QVERIFY(Hardware::explainFailure("vaapi", err).isEmpty());
+    }
+
     void gpuEncodingIsOffUntilSwitchedOn() {
         QTemporaryDir config;
         Backend backend(nullptr, config.path());
@@ -925,6 +936,8 @@ private slots:
         Hardware hardware;
         hardware.detect();
         QTRY_VERIFY_WITH_TIMEOUT(hardware.ready(), 90000);
+        for (const QString &problem : hardware.problems())
+            qInfo() << "GPU problem:" << problem;
         if (hardware.encoders().isEmpty())
             QSKIP("no GPU encoder works on this machine");
         for (const Hardware::Encoder &e : hardware.encoders())

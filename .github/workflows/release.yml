@@ -98,7 +98,11 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       QT_VERSION: "6.11.3"
-      FFMPEG: ffmpeg-n9.0-latest-${{ matrix.ffmpeg }}-gpl-shared-9.0
+      # BtbN builds ffmpeg 9.x against NVENC SDK 13.1, which needs NVIDIA
+      # driver 610+; 8.1 uses SDK 13.0 (driver 570+), so NVENC works on the
+      # 570-595 drivers distributions ship. Everything else Encodr uses is in
+      # 8.1 (tested on an RTX 3080, Intel QSV/VA-API and arm64).
+      FFMPEG: ffmpeg-n8.1-latest-${{ matrix.ffmpeg }}-gpl-shared-8.1
     steps:
       - uses: actions/checkout@v4
 

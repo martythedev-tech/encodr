@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFile>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QTimer>
 
 namespace {
@@ -42,6 +43,18 @@ QString Hardware::encoderName(const QString &id, const QString &codec) {
     return codec + "_" + id;    // h264_nvenc, hevc_vaapi…
 }
 
+QString Hardware::explainFailure(const QString &id, const QByteArray &errors) {
+    // ffmpeg built against a newer NVENC SDK than the installed driver:
+    // "The minimum required Nvidia driver for nvenc is 610.00 or newer".
+    static const QRegularExpression nvenc("minimum required Nvidia driver for nvenc is ([0-9.]+)");
+    const auto m = nvenc.match(QString::fromUtf8(errors));
+    if (id == "nvenc" && m.hasMatch())
+        return QString("NVIDIA GPU found, but this ffmpeg's NVENC needs NVIDIA driver %1 or newer. Update the "
+                       "driver, or use a distribution ffmpeg built for the one installed.")
+            .arg(m.captured(1).section('.', 0, 0));
+    return {};
+}
+
 QStringList Hardware::parseEncoderList(const QByteArray &output) {
     // Lines look like " V....D h264_nvenc   NVIDIA NVENC H.264 encoder".
     QStringList names;
@@ -74,6 +87,7 @@ QStringList Hardware::testArguments(const QString &id, const QString &codec, con
 void Hardware::detect() {
     m_ready = false;
     m_encoders.clear();
+    m_problems.clear();
     m_pending.clear();
     auto *list = new QProcess(this);
     connect(list, &QProcess::finished, this, [this, list](int, QProcess::ExitStatus) {
@@ -140,6 +154,10 @@ void Hardware::runNext() {
                 m_encoders << Encoder{c.id, c.name, c.device, {c.codec}};
             else
                 it->codecs << c.codec;
+        } else {
+            const QString why = explainFailure(c.id, test->readAllStandardError());
+            if (!why.isEmpty() && !m_problems.contains(why))
+                m_problems << why;
         }
         runNext();
     });
