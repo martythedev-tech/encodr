@@ -55,6 +55,11 @@ struct Preset {
     // Pixels cropped off each edge of the source; set per run from the job
     // (crop belongs to a file, not a preset), not saved.
     int cropLeft = 0, cropTop = 0, cropRight = 0, cropBottom = 0;
+    // Bars added to reach an aspect (16:9 → 9:16, say), after crop and
+    // scaling; set per run from the job like the crop. 0 = no padding. The
+    // bars are black, or "blur": the picture itself, blurred, filling them.
+    int padAcross = 0, padDown = 0;
+    QString padFill = "black";
     // Subtitles to burn into the picture, set per run from the job: a path
     // ffmpeg's filter can take as it is (a link with a plain name), the
     // subtitle track in it (-1 for a subtitle file), and what to call it.
@@ -73,6 +78,7 @@ struct Preset {
     bool copiesVideo() const { return video == "copy"; }
     bool copiesAudio() const { return audio == "copy"; }
     bool crops() const { return cropLeft || cropTop || cropRight || cropBottom; }
+    bool pads() const { return padAcross > 0 && padDown > 0; }
     bool burnsSubtitles() const { return !burnSubtitles.isEmpty(); }
     QVariantMap toVariant() const;
     static Preset fromVariant(const QVariantMap &map);
@@ -145,8 +151,22 @@ QStringList outputStillArguments(const Preset &preset, const MediaInfo &info, co
 // preset makes one in seconds: a plain-language reason why, else empty.
 QString rewrapReason(const MediaInfo &info, const QString &path);
 
-// The output picture's height after crop and size limit; 0 without a picture.
+// The output picture's height after crop, size limit and padding; 0 without
+// a picture.
 int outputHeight(const Preset &preset, const MediaInfo &info);
+
+// Padding to an aspect: the frame, and the picture's size and place in it.
+// The frame's short side is the picture's (a 1920×1080 picture padded to
+// 9:16 makes a 1080×1920 frame), held to the size limit, so the picture is
+// only ever scaled down to fit. Empty (frame 0×0) when there's nothing to
+// add: no padding asked for, or the picture already has that shape.
+struct Padding {
+    int width = 0, height = 0;       // the frame
+    int pictureWidth = 0, pictureHeight = 0;
+    int x = 0, y = 0;
+    bool isNull() const { return width <= 0 || height <= 0; }
+};
+Padding padding(int width, int height, int across, int down, int maxHeight = 0);
 
 // A codec's everyday name: H.264, AAC, Blu-ray (PGS)…
 QString codecName(const QString &codec);

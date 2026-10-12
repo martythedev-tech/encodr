@@ -312,6 +312,55 @@ ScrollView {
                         }
                     }
                 }
+                // Bars to reach an aspect: the file's, like the crop.
+                Field {
+                    label: "Bars"
+                    visible: p.video !== "none"
+                    ColumnLayout {
+                        width: Math.min(340, parent.width)
+                        spacing: 6
+                        ComboBox {
+                            Layout.fillWidth: true
+                            implicitHeight: 32
+                            topInset: 0
+                            bottomInset: 0
+                            font.pixelSize: 12
+                            enabled: !root.locked && job !== null
+                            textRole: "text"
+                            valueRole: "value"
+                            model: [
+                                { value: "off", text: "None" },
+                                { value: "16:9", text: "Widescreen 16:9" },
+                                { value: "4:3", text: "Classic 4:3" },
+                                { value: "1:1", text: "Square 1:1" },
+                                { value: "4:5", text: "Portrait 4:5" },
+                                { value: "9:16", text: "Vertical 9:16" }]
+                            currentIndex: job ? indexOfValue(job.padMode) : 0
+                            onActivated: job.setPadMode(currentValue)
+                        }
+                        Segmented {
+                            visible: job !== null && job.padMode !== "off"
+                            implicitHeight: 24
+                            enabled: !root.locked
+                            options: [{ id: "black", text: "Black" }, { id: "blur", text: "Blurred picture" }]
+                            current: job ? job.padFill : "black"
+                            onPicked: function (id) { job.setPadFill(id); }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            color: theme.dim
+                            font.pixelSize: 11
+                            visible: text !== ""
+                            text: {
+                                if (!job || job.padMode === "off")
+                                    return "";
+                                const note = job.notes.find(n => n.startsWith("Padded to") || n.startsWith("Already "));
+                                return note ? note.replace(/^Padded to [0-9:]+ /, "Makes a frame ") : "";
+                            }
+                        }
+                    }
+                }
                 Field {
                     label: "LUT"
                     visible: p.video !== "none"

@@ -34,7 +34,8 @@ below; and the source details beside live stats. The layout is remembered.
   period step a frame.
 - **See the output before you convert.** Switch the player to Output and,
   while paused, the frame at the playhead is shown as the conversion will make
-  it: LUT, crop, scaling, logo, burned-in subtitles and timecode, watermark.
+  it: LUT, crop, scaling, bars, logo, burned-in subtitles and timecode,
+  watermark.
   It updates as you step, scrub or change a setting.
 - **Trim to just the part you need.** Drag the in and out points under the
   thumbnails, or press [ and ] at the playhead. Any preset converts only that
@@ -50,6 +51,11 @@ below; and the source details beside live stats. The layout is remembered.
   subtitles come along (as MP4 text, or exactly as they are in MKV).
 - **Crop.** Remove black bars (found automatically), crop to 16:9, 1:1, 4:5 or
   9:16 for social media, or set the edges by hand; the player shows what's kept.
+- **Bars to fit a shape.** The opposite of a crop: pad to 16:9, 4:3, 1:1, 4:5
+  or 9:16 with black bars or a blurred copy of the picture, so a widescreen
+  clip fits a vertical feed whole. The frame's short side stays the picture's
+  (1080p becomes 1080×1920), within the size limit; the logo, subtitles and
+  timecode go on the finished frame.
 - **Burn in subtitles** from a track in the file, text or picture (Blu-ray
   PGS, DVD), a subtitle file beside it (`film.srt`, `film.en.ass`) or one you
   choose. Trimmed copies stay in sync, and burned-in timecode moves to the top

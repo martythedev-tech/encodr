@@ -1250,6 +1250,120 @@ private slots:
         QVERIFY(sourceProblem(copy, source).contains("Cropping changes the picture"));
     }
 
+    void padsToAnAspect() {
+        // The frame's short side is the picture's; the picture fits inside.
+        Padding pad = padding(1920, 1080, 9, 16);
+        QCOMPARE(pad.width, 1080);
+        QCOMPARE(pad.height, 1920);
+        QCOMPARE(pad.pictureWidth, 1080);
+        QCOMPARE(pad.pictureHeight, 608);
+        QCOMPARE(pad.x, 0);
+        QCOMPARE(pad.y, 656);
+        pad = padding(1440, 1080, 16, 9);    // 4:3 pillarboxed, not scaled
+        QCOMPARE(pad.width, 1920);
+        QCOMPARE(pad.height, 1080);
+        QCOMPARE(pad.pictureWidth, 1440);
+        QCOMPARE(pad.pictureHeight, 1080);
+        QCOMPARE(pad.x, 240);
+        QCOMPARE(pad.y, 0);
+        pad = padding(1920, 1080, 9, 16, 720);    // the size limit holds the frame's short side
+        QCOMPARE(pad.width, 720);
+        QCOMPARE(pad.height, 1280);
+        QCOMPARE(pad.pictureWidth, 720);
+        QCOMPARE(pad.pictureHeight, 404);
+        QVERIFY(padding(1920, 1080, 16, 9).isNull());     // already that shape
+        QVERIFY(padding(1920, 1082, 16, 9).isNull());     // a pixel or two off is rounding
+        QVERIFY(padding(1920, 1080, 0, 0).isNull());
+
+        const MediaInfo source = parseProbe(kKiPro, "/x/in.mov");    // 1280×720
+        Preset p = builtinPresets()[2];   // share copy: up to 1080p
+        p.padAcross = 9;
+        p.padDown = 16;
+        Command cmd = buildCommand(p, source, "/x/in.mov", "/y/out.mp4");
+        QString joined = cmd.arguments.join(' ');
+        QVERIFY2(joined.contains("scale=720:404:flags=lanczos,pad=720:1280:0:438:color=black,setsar=1"), qPrintable(joined));
+        QVERIFY2(cmd.notes.contains("Padded to 9:16 (720×1280): black bars above and below"), qPrintable(cmd.notes.join('|')));
+        QCOMPARE(outputHeight(p, source), 1280);
+
+        // After the crop: a cropped 4:3 picture padded back out to 16:9.
+        p.padAcross = 16;
+        p.padDown = 9;
+        p.cropLeft = p.cropRight = 160;    // 960×720
+        p.padFill = "blur";
+        cmd = buildCommand(p, source, "/x/in.mov", "/y/out.mp4");
+        joined = cmd.arguments.join(' ');
+        QVERIFY2(joined.contains("crop=960:720:160:0,split[pbg][pfg];[pbg]scale=320:180:force_original_aspect_ratio=increase,"
+                                 "crop=320:180,boxblur=11:2,scale=1280:720,eq=brightness=-0.08[pbb];[pfg]null[pff];"
+                                 "[pbb][pff]overlay=160:0:format=auto,setsar=1"), qPrintable(joined));
+        QVERIFY(cmd.notes.contains("Padded to 16:9 (1280×720): blurred picture at the sides"));
+
+        p.cropLeft = p.cropRight = 0;    // already 16:9: nothing added
+        cmd = buildCommand(p, source, "/x/in.mov", "/y/out.mp4");
+        QVERIFY(!cmd.arguments.join(' ').contains("pad="));
+        QVERIFY(!cmd.arguments.join(' ').contains("split[pbg]"));
+        QVERIFY(cmd.notes.contains("Already 16:9, so no bars are added"));
+
+        Preset copy = p;
+        copy.video = "copy";
+        QVERIFY(sourceProblem(copy, source).contains("Adding bars changes the picture"));
+
+        // The job keeps the choice, like the crop, and drops the rewrap tip.
+        Job job(1, "/x/in.mov");
+        job.setPadMode("9:16");
+        job.setPadFill("blur");
+        QCOMPARE(job.runPreset().padAcross, 9);
+        QCOMPARE(job.runPreset().padDown, 16);
+        QCOMPARE(job.runPreset().padFill, QString("blur"));
+        QVERIFY(job.suggestion().isEmpty());
+        job.setPadMode("7:3");    // not offered: ignored
+        QCOMPARE(job.padMode(), QString("9:16"));
+        job.setPadMode("off");
+        QVERIFY(!job.runPreset().pads());
+    }
+
+    void padsForReal() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        QProcess make;
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "color=white:size=320x180:rate=25:duration=2",
+                              "-c:v", "libx264", "-pix_fmt", "yuv420p", dir.filePath("white.mp4")});
+        QVERIFY(make.waitForFinished(30000));
+        QCOMPARE(make.exitCode(), 0);
+
+        Job job(1, dir.filePath("white.mp4"));
+        Preset p = builtinPresets().first();
+        p.speed = "ultrafast";
+        p.burnTimecode = false;
+        job.setPreset(p);
+        job.setOutputFolder(dir.filePath("out"));
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        job.setPadMode("9:16");
+        QSignalSpy finished(&job, &Job::finished);
+        QVERIFY(job.start());
+        QVERIFY(finished.wait(60000));
+        QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+
+        const QString out = dir.filePath("out/white_review.mp4");
+        QProcess probe;
+        probe.start("ffprobe", {"-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,sample_aspect_ratio",
+                                "-of", "csv=p=0", out});
+        QVERIFY(probe.waitForFinished(20000));
+        QCOMPARE(QString(probe.readAllStandardOutput()).trimmed(), QString("180,320,1:1"));
+        auto brightness = [&](int x, int y) {
+            QProcess f;
+            f.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-ss", "1", "-i", out, "-frames:v", "1",
+                               "-vf", QString("crop=1:1:%1:%2,format=gray").arg(x).arg(y), "-f", "rawvideo", "-"});
+            f.waitForFinished(20000);
+            const QByteArray b = f.readAllStandardOutput();
+            return b.isEmpty() ? -1 : int(uchar(b[0]));
+        };
+        QVERIFY2(brightness(90, 10) < 30, "a black bar above");
+        QVERIFY2(brightness(90, 310) < 30, "and below");
+        QVERIFY2(brightness(90, 160) > 220, "the white picture in the middle");
+    }
+
     void detectsBarsForReal() {
         if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
             QSKIP("ffmpeg is not installed");

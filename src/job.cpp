@@ -48,6 +48,7 @@ Job::Job(int id, const QString &inputPath, QObject *parent)
     };
     connect(this, &Job::presetChanged, this, redraw);
     connect(this, &Job::cropChanged, this, redraw);
+    connect(this, &Job::padChanged, this, redraw);
     connect(this, &Job::subtitlesChanged, this, redraw);
     m_subtitleLink = stem + "-subtitles";
 }
@@ -151,6 +152,12 @@ Preset Job::runPreset() const {
     p.cropTop = m_crop.top();
     p.cropRight = m_crop.right();
     p.cropBottom = m_crop.bottom();
+    const QStringList aspect = m_padMode.split(':');
+    if (aspect.size() == 2) {
+        p.padAcross = aspect[0].toInt();
+        p.padDown = aspect[1].toInt();
+        p.padFill = m_padFill;
+    }
     return p;
 }
 
@@ -183,8 +190,8 @@ QStringList Job::notes() const {
 
 QVariantMap Job::suggestion() const {
     // Not when the preset already copies, or the job changes the picture
-    // (crop, burned-in subtitles), which a rewrap can't do.
-    if (m_preset.copiesVideo() || !m_crop.isNull() || (m_subtitleBurn != "off" && !m_subtitleBurn.isEmpty()))
+    // (crop, bars, burned-in subtitles), which a rewrap can't do.
+    if (m_preset.copiesVideo() || !m_crop.isNull() || m_padMode != "off" || (m_subtitleBurn != "off" && !m_subtitleBurn.isEmpty()))
         return {};
     const QString reason = rewrapReason(m_info, m_input);
     if (reason.isEmpty())
@@ -291,6 +298,23 @@ void Job::setCropMargins(int left, int top, int right, int bottom) {
     m_crop = QMargins(even(left), even(top), even(right), even(bottom));
     m_cropMode = "custom";
     emit cropChanged();
+    emit presetChanged();
+}
+
+void Job::setPadMode(const QString &mode) {
+    static const QStringList modes{"off", "16:9", "4:3", "1:1", "4:5", "9:16"};
+    if (isActive() || mode == m_padMode || !modes.contains(mode))
+        return;
+    m_padMode = mode;
+    emit padChanged();
+    emit presetChanged();
+}
+
+void Job::setPadFill(const QString &fill) {
+    if (isActive() || fill == m_padFill || (fill != "black" && fill != "blur"))
+        return;
+    m_padFill = fill;
+    emit padChanged();
     emit presetChanged();
 }
 

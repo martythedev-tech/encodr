@@ -273,6 +273,9 @@ QString sourceProblem(const Preset &p, const MediaInfo &info) {
     if (p.crops() && p.copiesVideo())
         return "Cropping changes the picture, so the video can't be copied as it is. Choose a video codec, "
                "or turn the crop off.";
+    if (p.pads() && p.copiesVideo())
+        return "Adding bars changes the picture, so the video can't be copied as it is. Choose a video codec, "
+               "or turn the bars off.";
     if (p.crops() && (info.width - p.cropLeft - p.cropRight < 16 || info.height - p.cropTop - p.cropBottom < 16))
         return "The crop leaves almost nothing of the picture.";
     if (p.container == "source" || p.container == "mkv")
@@ -495,7 +498,8 @@ QStringList loudnessArguments(const Preset &p, const MediaInfo &info, const QStr
 
 namespace {
 // The picture's processing, in order, for the encode and the Output still
-// alike: deinterlace, LUT, crop, scale, logo, subtitles, timecode, watermark.
+// alike: deinterlace, LUT, crop, scale, pad, logo, subtitles, timecode,
+// watermark.
 // `start` is where the input begins on the source's clock (-1 = the start).
 QStringList videoChain(const Preset &p, const MediaInfo &info, double start, QStringList &notes) {
     QStringList chain;
@@ -536,7 +540,37 @@ QStringList videoChain(const Preset &p, const MediaInfo &info, double start, QSt
         chain << QString("crop=%1:%2:%3:%4").arg(w).arg(height).arg(p.cropLeft).arg(p.cropTop);
         notes << QString("Cropped to %1×%2").arg(w).arg(height);
     }
-    if (p.maxHeight > 0 && height > p.maxHeight) {
+    // Padding sizes the frame itself, the size limit included; the picture
+    // is scaled to fit inside it.
+    const int width = info.width - (p.crops() ? p.cropLeft + p.cropRight : 0);
+    const Padding pad = p.pads() ? padding(width, height, p.padAcross, p.padDown, p.maxHeight) : Padding();
+    if (p.pads() && pad.isNull())
+        notes << QString("Already %1:%2, so no bars are added").arg(p.padAcross).arg(p.padDown);
+    if (!pad.isNull()) {
+        const QString fit = pad.pictureWidth == width && pad.pictureHeight == height
+                                ? QString()
+                                : QString("scale=%1:%2:flags=lanczos").arg(pad.pictureWidth).arg(pad.pictureHeight);
+        if (p.padFill == "blur") {
+            // The bars are the picture itself, filling the frame, blurred
+            // and a little darker; blurred at a quarter size, which is
+            // quicker and looks the same.
+            const int bw = std::max(2, pad.width / 4 & ~1), bh = std::max(2, pad.height / 4 & ~1);
+            chain << QString("split[pbg][pfg];[pbg]scale=%1:%2:force_original_aspect_ratio=increase,crop=%1:%2,"
+                             "boxblur=%3:2,scale=%4:%5,eq=brightness=-0.08[pbb];[pfg]%6[pff];"
+                             "[pbb][pff]overlay=%7:%8:format=auto,setsar=1")
+                         .arg(bw).arg(bh).arg(std::max(1, std::min(bw, bh) / 16)).arg(pad.width).arg(pad.height)
+                         .arg(fit.isEmpty() ? QString("null") : fit).arg(pad.x).arg(pad.y);
+        } else {
+            chain << (fit.isEmpty() ? QString() : fit + ",")
+                         + QString("pad=%1:%2:%3:%4:color=black,setsar=1").arg(pad.width).arg(pad.height).arg(pad.x).arg(pad.y);
+        }
+        const bool sides = pad.x > 0;
+        notes << QString("Padded to %1:%2 (%3×%4): %5 %6")
+                     .arg(p.padAcross).arg(p.padDown).arg(pad.width).arg(pad.height)
+                     .arg(p.padFill == "blur" ? "blurred picture" : "black bars")
+                     .arg(sides ? "at the sides" : "above and below");
+        height = pad.height;
+    } else if (p.maxHeight > 0 && height > p.maxHeight) {
         chain << QString("scale=-2:%1:flags=lanczos").arg(p.maxHeight);
         notes << QString("Scaled down to %1p").arg(p.maxHeight);
         height = p.maxHeight;
@@ -634,9 +668,46 @@ int outputHeight(const Preset &p, const MediaInfo &info) {
     if (p.copiesVideo())
         return info.height;
     int height = info.height - (p.crops() ? p.cropTop + p.cropBottom : 0);
+    if (p.pads()) {
+        const Padding pad = padding(info.width - (p.crops() ? p.cropLeft + p.cropRight : 0), height,
+                                    p.padAcross, p.padDown, p.maxHeight);
+        if (!pad.isNull())
+            return pad.height;
+    }
     if (p.maxHeight > 0 && height > p.maxHeight)
         height = p.maxHeight;
     return height;
+}
+
+Padding padding(int width, int height, int across, int down, int maxHeight) {
+    if (width <= 0 || height <= 0 || across <= 0 || down <= 0)
+        return {};
+    int side = std::min(width, height);
+    if (maxHeight > 0 && side > maxHeight)
+        side = maxHeight;
+    side &= ~1;
+    Padding pad;
+    if (across >= down) {
+        pad.height = side;
+        pad.width = int(std::lround(double(side) * across / down)) & ~1;
+    } else {
+        pad.width = side;
+        pad.height = int(std::lround(double(side) * down / across)) & ~1;
+    }
+    // Fit the picture inside, on even pixels.
+    if (qint64(width) * pad.height > qint64(height) * pad.width) {
+        pad.pictureWidth = pad.width;
+        pad.pictureHeight = std::min(pad.height, int(std::lround(double(height) * pad.width / width)) & ~1);
+    } else {
+        pad.pictureHeight = pad.height;
+        pad.pictureWidth = std::min(pad.width, int(std::lround(double(width) * pad.height / height)) & ~1);
+    }
+    // Bars of a pixel or two each side are rounding, not a different shape.
+    if (pad.width - pad.pictureWidth <= 4 && pad.height - pad.pictureHeight <= 4)
+        return {};
+    pad.x = ((pad.width - pad.pictureWidth) / 2) & ~1;
+    pad.y = ((pad.height - pad.pictureHeight) / 2) & ~1;
+    return pad;
 }
 
 QStringList outputStillArguments(const Preset &p, const MediaInfo &info, const QString &input, double at,

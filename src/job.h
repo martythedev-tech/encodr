@@ -100,6 +100,10 @@ class Job : public QObject {
     Q_PROPERTY(int cropBottom READ cropBottom NOTIFY cropChanged)
     Q_PROPERTY(bool detectingBars READ detectingBars NOTIFY cropChanged)
     Q_PROPERTY(bool barsChecked READ barsChecked NOTIFY cropChanged)
+    // Bars added to reach an aspect after crop and scaling: "off" or the
+    // aspect ("9:16"); filled "black" or with the picture blurred ("blur").
+    Q_PROPERTY(QString padMode READ padMode NOTIFY padChanged)
+    Q_PROPERTY(QString padFill READ padFill NOTIFY padChanged)
     // Subtitles burned into the picture: "off", "track:N" (a text subtitle
     // track in the source) or a subtitle file's path.
     Q_PROPERTY(QString subtitleBurn READ subtitleBurn NOTIFY subtitlesChanged)
@@ -198,6 +202,10 @@ public:
     bool barsChecked() const { return m_barsChecked; }
     Q_INVOKABLE void setCropMode(const QString &mode);
     Q_INVOKABLE void setCropMargins(int left, int top, int right, int bottom);
+    QString padMode() const { return m_padMode; }
+    QString padFill() const { return m_padFill; }
+    Q_INVOKABLE void setPadMode(const QString &mode);
+    Q_INVOKABLE void setPadFill(const QString &fill);
     // The centred crop for an aspect ratio ("9:16"), on even pixels.
     static QMargins centredCrop(int width, int height, int across, int down);
 
@@ -257,6 +265,7 @@ signals:
     void trimChanged();
     void analysisChanged();
     void cropChanged();
+    void padChanged();
     void subtitlesChanged();
     void outputStillChanged();
 
@@ -307,6 +316,8 @@ private:
     void linkSubtitles() const;
     QString m_cropMode = "off";
     QMargins m_crop;
+    QString m_padMode = "off";
+    QString m_padFill = "black";
     QMargins m_detectedBars;
     QPointer<QProcess> m_bars;
     bool m_barsChecked = false;
