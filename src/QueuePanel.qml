@@ -126,7 +126,7 @@ Dock {
                         if (s === "done")
                             return Format.bytes(card.j.projectedSize) + " · " + Format.words(card.j.elapsed);
                         if (s === "ready")
-                            return Format.duration(card.j.totalDuration) + (card.j.clipCount > 1 ? "" : " · " + Format.bytes(card.j.info.size));
+                            return Format.duration(card.j.totalDuration) + " · " + Format.bytes(card.j.totalSize);
                         return card.j.message.split("\n")[0];
                     }
                 }

@@ -238,7 +238,7 @@ QVariantMap Job::suggestion() const {
 }
 
 QVariantList Job::issues() const {
-    QList<Issue> list = inspect(m_info);
+    QList<Issue> list = inspect(runInfo());    // joined: the clips as the conversion sees them
     if (m_analysed)
         list += analysisIssues(m_moments, m_info.duration);
     return issuesToVariant(list);
@@ -445,6 +445,13 @@ double Job::length() const {
     double total = m_info.duration;
     for (const Job *c : m_clips)
         total += c->info().duration;
+    return total;
+}
+
+qint64 Job::totalSize() const {
+    qint64 total = m_info.size;
+    for (const Job *c : m_clips)
+        total += c->info().size;
     return total;
 }
 

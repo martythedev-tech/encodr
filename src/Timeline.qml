@@ -13,18 +13,21 @@ ColumnLayout {
     property bool playing: false
     property bool muted: false
     property bool canPlay: true
+    // Playing the converted file: its own length, and no in and out points
+    // (they belong to the source).
+    property bool output: false
     signal seek(real seconds)
     signal scrubStarted()
     signal scrubFinished()
     signal playPause()
     signal toggleMute()
 
-    readonly property real duration: job && job.info.duration > 0 ? job.info.duration : 0
+    readonly property real duration: !job ? 0 : output ? job.totalDuration : job.info.duration > 0 ? job.info.duration : 0
     property real dragIn: -1
     property real dragOut: -1
-    readonly property real inPoint: dragIn >= 0 ? dragIn : (job ? job.trimIn : 0)
-    readonly property real outPoint: dragOut >= 0 ? dragOut : (job ? job.trimOut : 0)
-    readonly property bool cut: job !== null && (job.trimmed || dragIn >= 0 || dragOut >= 0)
+    readonly property real inPoint: output ? 0 : dragIn >= 0 ? dragIn : (job ? job.trimIn : 0)
+    readonly property real outPoint: output ? duration : dragOut >= 0 ? dragOut : (job ? job.trimOut : 0)
+    readonly property bool cut: job !== null && !output && (job.trimmed || dragIn >= 0 || dragOut >= 0)
 
     // For the keys: the in or out point at the playhead.
     function markIn() { if (job) job.setTrim(Math.min(position, outPoint - 0.1), job.trimOut); }
@@ -68,10 +71,10 @@ ColumnLayout {
             font.features: { "tnum": 1 }
             text: bar.cut ? "In " + Format.precise(bar.inPoint) + "  ·  Out " + Format.precise(bar.outPoint)
                             + "  ·  " + Format.precise(bar.outPoint - bar.inPoint)
-                          : "Drag the tabs under the strip to convert just part"
+                          : bar.output ? "The converted file" : "Drag the tabs under the strip to convert just part"
         }
         UiButton {
-            visible: job !== null && job.trimmed
+            visible: job !== null && job.trimmed && !bar.output
             kind: "ghost"
             text: "Reset"
             implicitHeight: 22
@@ -207,7 +210,7 @@ ColumnLayout {
             anchors.fill: parent
             anchors.topMargin: -2
             anchors.bottomMargin: -4
-            enabled: bar.duration > 0 && bar.job !== null && bar.job.clipCount < 2    // joined clips aren't trimmed
+            enabled: bar.duration > 0 && bar.job !== null && bar.job.clipCount < 2 && !bar.output    // joined clips aren't trimmed
             cursorShape: Qt.SizeHorCursor
             property bool movingIn: true
             function place(mx) {

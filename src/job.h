@@ -128,6 +128,7 @@ class Job : public QObject {
     Q_PROPERTY(QVariantList clips READ clipsVariant NOTIFY infoChanged)
     Q_PROPERTY(QString joinDifference READ joinDifference NOTIFY infoChanged)
     Q_PROPERTY(double totalDuration READ length NOTIFY infoChanged)
+    Q_PROPERTY(qint64 totalSize READ totalSize NOTIFY infoChanged)
     // The part of the source to convert: in and out points in seconds.
     Q_PROPERTY(double trimIn READ trimIn NOTIFY trimChanged)
     Q_PROPERTY(double trimOut READ trimOut NOTIFY trimChanged)
@@ -254,6 +255,8 @@ public:
     double length() const;
 
     int clipCount() const { return 1 + int(m_clips.size()); }
+    // The source's size, every joined clip's included.
+    qint64 totalSize() const;
     bool joined() const { return !m_clips.isEmpty(); }
     QVariantList clipsVariant() const;
     QString joinDifference() const { return m_joinDifference; }

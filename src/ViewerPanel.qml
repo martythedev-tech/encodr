@@ -223,7 +223,7 @@ Dock {
                                 font.pixelSize: 11
                                 font.features: { "tnum": 1 }
                                 text: (root.mode === "both" ? (modelData === "source" ? "Source · " : "Output · ") : "")
-                                      + (!job ? "" : root.live ? Format.duration(job.outTime) + " / " + Format.duration(job.info.duration)
+                                      + (!job ? "" : root.live ? Format.duration(job.outTime) + " / " + Format.duration(job.totalDuration)
                                                               : "Frame at " + Format.precise(job.posterTime))
                             }
                         }
@@ -364,6 +364,7 @@ Dock {
             id: timeline
             Layout.fillWidth: true
             job: root.job
+            output: root.playsOutput
             visible: root.playerMode
             position: root.position
             playing: root.playing
@@ -449,7 +450,7 @@ Dock {
                             return "Measuring speed…";
                         if (job.state === "done")
                             return "Took " + Format.words(job.elapsed) + " · " + Format.bytes(job.projectedSize)
-                                   + " (" + Math.round(100 * job.projectedSize / Math.max(1, job.info.size)) + "% of the original)";
+                                   + " (" + Math.round(100 * job.projectedSize / Math.max(1, job.totalSize)) + "% of the original)";
                         if (job.state === "ready")
                             return "Waiting in the queue";
                         return job.message.split("\n")[0];

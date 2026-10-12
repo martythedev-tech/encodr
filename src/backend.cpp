@@ -349,11 +349,15 @@ int Backend::waitingCount() const {
 }
 
 int Backend::joinableCount() const {
-    int n = 0;
+    // Clips in all, but only when there are two waiting files or more to put
+    // together (one already joined has nothing to join with).
+    int n = 0, jobs = 0;
     for (Job *job : m_jobs)
-        if (job->isWaiting())
+        if (job->isWaiting()) {
             n += job->clipCount();
-    return n;
+            ++jobs;
+        }
+    return jobs >= 2 ? n : 0;
 }
 
 void Backend::joinWaiting() {

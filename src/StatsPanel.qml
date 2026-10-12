@@ -78,7 +78,7 @@ Dock {
                            detail: job && job.averageSpeed > 0 ? "average " + Format.number(job.averageSpeed, 2) + "× real time" : "" }
                 StatTile { compact: true; label: "Frames"; value: job ? Format.thousands(job.frame) + (job.totalFrames > 0 ? " / " + Format.thousands(job.totalFrames) : "") : "—"
                            detail: job && job.fps > 0 ? Format.number(job.fps, 1) + " fps now · " + Format.number(job.averageFps, 1) + " avg" : "" }
-                StatTile { compact: true; label: "Converted"; value: job ? Format.duration(job.outTime) + " / " + Format.duration(job.trimOut - job.trimIn) : "—"
+                StatTile { compact: true; label: "Converted"; value: job ? Format.duration(job.outTime) + " / " + Format.duration(job.totalDuration) : "—"
                            detail: job && job.trimmed ? "of the trimmed part" : "of the source's running time" }
                 StatTile { compact: true; label: "Bitrate"; value: job ? Format.bitrate(root.live ? job.bitrateKbps : job.averageBitrateKbps) : "—"
                            detail: job && job.averageBitrateKbps > 0 ? "average " + Format.bitrate(job.averageBitrateKbps) + " · source " + Format.bps(info.bitrate) : "" }
@@ -88,12 +88,12 @@ Dock {
                     value: job ? Format.bytes(root.done ? job.projectedSize : job.size) : "—"
                     valueColor: wontFit ? theme.bad : theme.foreground
                     detail: {
-                        if (!job || job.projectedSize <= 0 || info.size <= 0)
+                        if (!job || job.projectedSize <= 0 || job.totalSize <= 0)
                             return job && job.freeSpace > 0 ? Format.bytes(job.freeSpace) + " free on the output drive" : "";
                         if (wontFit)
                             return "→ " + Format.bytes(job.projectedSize) + " won't fit on the drive!";
-                        const share = Math.round(100 * job.projectedSize / info.size) + "% of the original";
-                        return root.done ? share + " " + Format.bytes(info.size) : "→ " + Format.bytes(job.projectedSize) + " projected · " + share;
+                        const share = Math.round(100 * job.projectedSize / job.totalSize) + "% of the original";
+                        return root.done ? share + " " + Format.bytes(job.totalSize) : "→ " + Format.bytes(job.projectedSize) + " projected · " + share;
                     }
                 }
                 StatTile { compact: true; label: root.usesGpu ? "CPU use" : "Encoder CPU"; value: root.live ? Format.number(job.cpu, 0) + "%" : job && job.peakCpu > 0 ? Format.number(job.peakCpu, 0) + "%" : "—"

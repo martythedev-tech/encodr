@@ -1769,6 +1769,8 @@ private slots:
         QCOMPARE(backend.jobs().size(), 1);
         auto *job = backend.jobAt(0);
         QCOMPARE(job->clipCount(), 2);
+        QCOMPARE(backend.joinableCount(), 0);    // nothing left to join it with
+        QCOMPARE(job->totalSize(), QFileInfo(dir.filePath("c1.mp4")).size() + QFileInfo(dir.filePath("c2.mp4")).size());
         QVERIFY(job->joinDifference().isEmpty());
         QCOMPARE(job->suggestion().value("presetId").toString(), QString("copy"));
         QVERIFY(qAbs(job->length() - 4.0) < 0.2);
