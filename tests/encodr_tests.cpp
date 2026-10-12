@@ -939,35 +939,43 @@ private slots:
         backend.setGpuEnabled(true);
         backend.setHardware(&hardware);
 
+        // What "automatic" picks, and a codec no GPU passed goes to the CPU.
         for (const QString &codec : {QStringLiteral("h264"), QStringLiteral("hevc")}) {
-            Preset p = presetNamed(codec == "h264" ? "review" : "hevc");
-            const QString engine = backend.engineFor(p).first;
+            const QString engine = backend.engineFor(presetNamed(codec == "h264" ? "review" : "hevc")).first;
             if (hardware.best(codec).isEmpty()) {
-                QCOMPARE(engine, QString("cpu"));    // the GPU can't: the CPU does it
+                QCOMPARE(engine, QString("cpu"));
                 qInfo() << codec << "goes to the CPU: no GPU encoder passed for it";
-                continue;
+            } else {
+                QCOMPARE(engine, hardware.best(codec));
             }
-            QVERIFY(engine != "cpu");
-            Job job(1, source);
-            job.setPreset(p);
-            job.setOutputFolder(dir.filePath("out-" + codec));
-            job.probe();
-            QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
-            const auto [id, device] = backend.engineFor(p);
-            job.setEngine(id, device);
-            QSignalSpy finished(&job, &Job::finished);
-            QVERIFY(job.start());
-            QVERIFY(finished.wait(90000));
-            QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
-            QVERIFY2(job.engine() == id, qPrintable(job.notes().join(" | ")));    // no fallback
-            QVERIFY(std::any_of(job.notes().cbegin(), job.notes().cend(),
-                                [](const QString &n) { return n.startsWith("Encoded on the GPU"); }));
-            QProcess probe;
-            probe.start("ffprobe", {"-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height",
-                                    "-of", "csv=p=0", job.outputPath()});
-            QVERIFY(probe.waitForFinished(20000));
-            QCOMPARE(QString(probe.readAllStandardOutput()).trimmed(), codec + ",1280,720");
-            qInfo() << codec << "converted on" << hardware.nameFor(id) << QFileInfo(job.outputPath()).size() << "bytes";
+        }
+        // Every family and codec that passed, chosen by hand ("Runs on").
+        int n = 0;
+        for (const Hardware::Encoder &e : hardware.encoders()) {
+            for (const QString &codec : e.codecs) {
+                Preset p = presetNamed(codec == "h264" ? "review" : "hevc");
+                p.hardware = e.id;
+                QCOMPARE(backend.engineFor(p), qMakePair(e.id, e.device));
+                Job job(++n, source);
+                job.setPreset(p);
+                job.setOutputFolder(dir.filePath(QString("out-%1-%2").arg(e.id, codec)));
+                job.probe();
+                QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+                job.setEngine(e.id, e.device);
+                QSignalSpy finished(&job, &Job::finished);
+                QVERIFY(job.start());
+                QVERIFY(finished.wait(90000));
+                QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+                QVERIFY2(job.engine() == e.id, qPrintable(job.notes().join(" | ")));    // no fallback
+                QVERIFY(std::any_of(job.notes().cbegin(), job.notes().cend(),
+                                    [](const QString &note) { return note.startsWith("Encoded on the GPU"); }));
+                QProcess probe;
+                probe.start("ffprobe", {"-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height",
+                                        "-of", "csv=p=0", job.outputPath()});
+                QVERIFY(probe.waitForFinished(20000));
+                QCOMPARE(QString(probe.readAllStandardOutput()).trimmed(), codec + ",1280,720");
+                qInfo() << codec << "converted on" << e.name << QFileInfo(job.outputPath()).size() << "bytes";
+            }
         }
     }
 
