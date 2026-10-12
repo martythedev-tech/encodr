@@ -1936,6 +1936,17 @@ private slots:
         job.setCropMargins(0, 0, 0, 0);
         QTRY_VERIFY_WITH_TIMEOUT(job.outputStillStamp() == 2 && !job.outputStillBusy(), 20000);
         QCOMPARE(QImage(job.outputStill()).size(), QSize(1920, 1080));
+
+        // A setting changed while the next frame is still being made (an
+        // out point set at the playhead) ends on that frame, not the last
+        // one shown.
+        job.showOutputAt(3.0);
+        QTest::qWait(250);    // past the 120 ms gathering: ffmpeg is making it
+        QVERIFY(job.outputStillBusy());
+        job.setCropMargins(0, 140, 0, 140);
+        QTRY_VERIFY_WITH_TIMEOUT(!job.outputStillBusy() && job.outputStillStamp() >= 4, 20000);
+        QCOMPARE(job.outputStillTime(), 3.0);
+        QCOMPARE(QImage(job.outputStill()).size(), QSize(1920, 800));
     }
 
     void subtitleBurnCommands() {
@@ -2054,6 +2065,17 @@ private slots:
         Preset gone = p;
         gone.lut = dir.filePath("missing.cube");
         QVERIFY(sourceProblem(gone, info).contains("isn't there any more"));
+    }
+
+    void watermarkMakesRoomForTheLogo() {
+        const MediaInfo info = parseProbe(kKiPro, "/x/in.mov");
+        Preset p = presetNamed("review");
+        p.watermark = "DRAFT";
+        QVERIFY(buildCommand(p, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ').contains(":x=w-tw-h/24:y=h/24"));
+        p.logo = "/c/logo.png";    // top right by default: the watermark moves to the top left
+        QVERIFY(buildCommand(p, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ').contains("text='DRAFT':fontsize=h/12:fontcolor=white@0.35:x=h/24:y=h/24"));
+        p.logoPosition = "bl";
+        QVERIFY(buildCommand(p, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ').contains(":x=w-tw-h/24:y=h/24"));
     }
 
     void lutAndLogoForReal() {

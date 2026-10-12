@@ -384,6 +384,7 @@ private:
     QTimer m_stillTimer;          // gathers quick requests (frame steps, slider drags) into one
     double m_stillWanted = -1;    // the frame to make next
     double m_stillTime = -1;      // the frame shown, -1 = none yet
+    double m_stillAsked = -1;     // the frame last asked for
     int m_stillStamp = 0;
     bool m_stillBusy = false;
     QString m_stillError;

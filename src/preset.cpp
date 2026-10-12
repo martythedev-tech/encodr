@@ -793,8 +793,10 @@ QStringList videoChain(const Preset &p, const MediaInfo &info, double start, QSt
     // colons and percent signs are a trap not worth exposing.
     const QString mark = QString(p.watermark).remove(QRegularExpression("[^A-Za-z0-9 .!?&()#@+-]")).trimmed();
     if (!mark.isEmpty()) {
+        // Top right, unless the logo is there: then top left.
+        const bool logoTopRight = !logo.isEmpty() && (p.logoPosition == "tr" || p.logoPosition.isEmpty());
         chain << QString("drawtext=font=sans:text='%1':fontsize=h/12:fontcolor=white@0.35"
-                         ":x=w-tw-h/24:y=h/24").arg(mark);
+                         ":x=%2:y=h/24").arg(mark, logoTopRight ? QString("h/24") : QString("w-tw-h/24"));
         notes << QString("Watermark \"%1\"").arg(mark);
     }
     return chain;

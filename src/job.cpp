@@ -47,9 +47,11 @@ Job::Job(int id, const QString &inputPath, QObject *parent)
     m_stillTimer.setInterval(120);
     connect(&m_stillTimer, &QTimer::timeout, this, &Job::makeOutputStill);
     // A change to the processing redraws the still that's showing.
+    // At the frame last asked for: the one shown may be a step behind while
+    // the next is still being made, and redrawing that would win.
     auto redraw = [this] {
-        if (m_stillTime >= 0 && m_stillWanted < 0 && !isActive())
-            showOutputAt(m_stillTime);
+        if (m_stillAsked >= 0 && m_stillWanted < 0 && !isActive())
+            showOutputAt(m_stillAsked);
     };
     connect(this, &Job::presetChanged, this, redraw);
     connect(this, &Job::cropChanged, this, redraw);
@@ -652,6 +654,7 @@ void Job::showOutputAt(double seconds) {
     if (!canShowOutput())
         return;
     m_stillWanted = std::clamp(seconds, 0.0, std::max(0.0, m_info.duration - 0.05));
+    m_stillAsked = m_stillWanted;
     m_stillTimer.start();
     emit outputStillChanged();
 }
