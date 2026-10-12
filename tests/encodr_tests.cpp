@@ -1411,8 +1411,9 @@ private slots:
         QCOMPARE(r.worst.first().score, 70.0);
         for (int i = 1; i < r.worst.size(); ++i)
             QVERIFY(std::abs(r.worst[i].time - 4.0) >= 3);
-        r.tool = quality::Tool::LibVmaf;
-        QVERIFY(quality::verdict(r).startsWith("Very good"));
+        QVERIFY(quality::verdict(r).startsWith("Very good"));    // read on VMAF's scale, not SSIM's
+        for (const quality::Moment &m : r.worst)
+            QVERIFY(m.score < r.mean);                            // only seconds below the average
         QVERIFY(quality::verdict(r).contains("Some moments dip"));
 
         const quality::Result ssim = quality::parseSsimLog(

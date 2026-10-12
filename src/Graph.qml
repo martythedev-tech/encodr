@@ -9,6 +9,7 @@ Rectangle {
     property string title: ""
     property string current: ""
     property real floor: 0          // the y axis never tops out below this
+    property real base: 0           // where the y axis starts
     property string maxLabel: ""
 
     color: theme.surface
@@ -25,6 +26,7 @@ Rectangle {
     }
 
     onValuesChanged: canvas.requestPaint()
+    onBaseChanged: canvas.requestPaint()
     onLineColorChanged: canvas.requestPaint()
 
     ColumnLayout {
@@ -61,12 +63,13 @@ Rectangle {
                 }
                 if (v.length < 2 || root.peak <= 0)
                     return;
-                var top = root.peak * 1.1;
+                var top = root.base + (root.peak - root.base) * 1.1;
+                var y = function (value) { return h - Math.max(0, value - root.base) / (top - root.base) * h; };
                 var step = w / (v.length - 1);
                 ctx.beginPath();
-                ctx.moveTo(0, h - v[0] / top * h);
+                ctx.moveTo(0, y(v[0]));
                 for (var i = 1; i < v.length; i++)
-                    ctx.lineTo(i * step, h - v[i] / top * h);
+                    ctx.lineTo(i * step, y(v[i]));
                 ctx.strokeStyle = root.lineColor;
                 ctx.lineWidth = 1.5;
                 ctx.lineJoin = "round";

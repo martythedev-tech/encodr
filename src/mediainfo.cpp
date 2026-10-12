@@ -109,6 +109,10 @@ MediaInfo parseProbe(const QByteArray &json, const QString &path) {
 
     const auto format = doc.object().value("format").toObject();
     info.container = format.value("format_long_name").toString(format.value("format_name").toString());
+    // ffprobe reads MP4 and MOV with one demuxer and calls both QuickTime.
+    const QString extension = QFileInfo(path).suffix().toLower();
+    if (format.value("format_name").toString().startsWith("mov,mp4") && (extension == "mp4" || extension == "m4v"))
+        info.container = "MP4";
     info.size = format.value("size").toString().toLongLong();
     if (info.size == 0)
         info.size = QFileInfo(path).size();

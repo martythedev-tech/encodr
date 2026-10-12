@@ -22,6 +22,9 @@ ScrollView {
     }
     clip: true
     contentWidth: availableWidth
+    // Nothing scrolls sideways; a hidden horizontal bar still took clicks
+    // along the bottom edge.
+    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
     component Row2: RowLayout {
         property string label
@@ -119,6 +122,7 @@ ScrollView {
                         model: [["Average", "mean"], ["Worst 1%", "low"], ["Lowest", "min"]]
                         ColumnLayout {
                             required property var modelData
+                            Layout.alignment: Qt.AlignTop
                             spacing: 0
                             Text { text: modelData[0].toUpperCase(); color: theme.dim; font.pixelSize: 10; font.weight: Font.DemiBold; font.letterSpacing: 0.6 }
                             Text {
@@ -151,7 +155,11 @@ ScrollView {
                     implicitHeight: 84
                     title: results.q.metric ? results.q.metric + " across the file" : ""
                     values: results.q.curve || []
+                    // From a little under the lowest point, so the dips show.
                     floor: 100
+                    base: Math.max(0, Math.floor(((results.q.min !== undefined ? results.q.min : 0) - 5) / 10) * 10)
+                    maxLabel: "100"
+                    current: results.q.measured === true ? "from " + Math.round(base) : ""
                 }
                 Text {
                     visible: (results.q.worst || []).length > 0

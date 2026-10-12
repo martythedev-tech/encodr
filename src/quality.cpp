@@ -113,6 +113,7 @@ QStringList vmafToolArguments(const QString &referencePipe, const QString &outpu
 
 Result parseVmafLog(const QByteArray &json, double fps) {
     Result r;
+    r.tool = Tool::LibVmaf;    // either VMAF route: the verdict reads it on VMAF's scale
     const QJsonArray frames = QJsonDocument::fromJson(json).object().value("frames").toArray();
     const double step = fps > 0 ? 1 / fps : 0.04;
     int previous = -1;
@@ -134,6 +135,7 @@ Result parseVmafLog(const QByteArray &json, double fps) {
 
 Result parseSsimLog(const QByteArray &log, double fps) {
     Result r;
+    r.tool = Tool::Ssim;
     static const QRegularExpression line("n:(\\d+).*All:([0-9.]+)");
     const double step = fps > 0 ? 1 / fps : 0.04;
     for (const QByteArray &l : log.split('\n')) {
@@ -159,8 +161,9 @@ void summarise(Result &r) {
     r.min = sorted.first();
     r.low = sorted[qsizetype(std::floor(0.01 * (sorted.size() - 1)))];
 
-    // The weakest seconds: each second's average, lowest first, at least
-    // three seconds apart so one bad shot isn't listed five times.
+    // The weakest seconds: each second's average, lowest first, below the
+    // file's average, at least three seconds apart so one bad shot isn't
+    // listed five times.
     QMap<int, QPair<double, int>> seconds;
     for (int i = 0; i < r.scores.size(); ++i) {
         auto &s = seconds[int(std::floor(r.times[i]))];
@@ -173,7 +176,7 @@ void summarise(Result &r) {
     std::sort(all.begin(), all.end(), [](const Moment &a, const Moment &b) { return a.score < b.score; });
     r.worst.clear();
     for (const Moment &m : all) {
-        if (r.worst.size() >= 5)
+        if (r.worst.size() >= 5 || m.score >= r.mean)
             break;
         const bool near = std::any_of(r.worst.cbegin(), r.worst.cend(),
                                       [&](const Moment &w) { return std::abs(w.time - m.time) < 3; });
