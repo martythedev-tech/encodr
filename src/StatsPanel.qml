@@ -14,7 +14,7 @@ Dock {
     readonly property var info: job ? job.info : ({})
     readonly property var hist: job ? job.history : ({})
     // A GPU job's card and its live numbers (empty when the card publishes none).
-    readonly property bool usesGpu: job !== null && job.engine !== "cpu"
+    readonly property bool usesGpu: job !== null && ["nvenc", "qsv", "vaapi"].indexOf(job.engine) >= 0
     readonly property var gpu: usesGpu && tel.gpus ? tel.gpuFor(job.engine, job.engineDevice) : ({})
     readonly property string gpuName: !usesGpu ? "" : gpu.name ? gpu.name
                                       : job.engine === "nvenc" ? "NVIDIA GPU" : job.engine === "qsv" ? "Intel GPU" : "VA-API"

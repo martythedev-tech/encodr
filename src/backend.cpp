@@ -496,12 +496,17 @@ void Backend::startNext() {
     if (paused())
         return;
     bool started = false;
+    int blocked = 0;
+    QString why;
     for (int i = 0; i < m_jobs.size() && runningCount() < effectiveParallel(); ++i) {
         Job *job = m_jobs[i];
         if (!job->isWaiting())
             continue;
-        if (!job->presetProblemText().isEmpty())
+        if (!job->presetProblemText().isEmpty()) {
+            if (blocked++ == 0)
+                why = job->presetProblemText();
             continue;
+        }
         const auto [engine, device] = engineFor(job->presetValue());
         job->setEngine(engine, device);
         if (job->start()) {
@@ -525,6 +530,11 @@ void Backend::startNext() {
     m_running = false;
     setInhibit(false);
     emit queueChanged();
+    // Files left waiting that can't start: say so, rather than Start doing
+    // nothing.
+    if (blocked > 0)
+        setNotice((blocked == 1 ? QString("A waiting file can't start: ")
+                                : QString("%1 waiting files can't start. The first: ").arg(blocked)) + why);
     if (wasRunning) {
         int done = 0, failed = 0;
         for (Job *job : m_jobs) {

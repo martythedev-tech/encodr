@@ -1583,6 +1583,22 @@ private slots:
         job.setPreset(presetNamed("av1"));
         job.setEngine("missing");
         QVERIFY(job.presetProblemText().contains("built without SVT-AV1"));
+        if (hasTool("ffmpeg")) {
+            // Start with only such files waiting says why instead of nothing.
+            QTemporaryDir media;
+            QProcess make;
+            make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=25:duration=1",
+                                  "-c:v", "libx264", media.filePath("a.mp4")});
+            QVERIFY(make.waitForFinished(30000) && make.exitCode() == 0);
+            backend.addPaths({media.filePath("a.mp4")});
+            QTRY_VERIFY_WITH_TIMEOUT(backend.jobAt(0) && backend.jobAt(0)->isWaiting(), 15000);
+            hardware.setBuiltEncoders({"libx264"});
+            backend.setJobPreset(0, "av1");
+            backend.startQueue();
+            QVERIFY(!backend.running());
+            QVERIFY2(backend.notice().startsWith("A waiting file can't start: This ffmpeg can't make AV1"), qPrintable(backend.notice()));
+            hardware.setBuiltEncoders({"libx264", "libsvtav1"});
+        }
         hardware.setBuiltEncoders({"libx264", "libsvtav1"});
         QCOMPARE(backend.engineFor(presetNamed("av1")).first, QString("cpu"));
 
