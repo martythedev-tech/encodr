@@ -9,7 +9,8 @@ license=('MIT')
 # found" otherwise), so pacman upgrades Qt with it or says why it can't.
 _qt=$(pacman -Q qt6-base 2>/dev/null | awk '{split($2, v, "."); print v[1] "." v[2]}')
 depends=("qt6-base${_qt:+>=$_qt}" 'qt6-declarative' 'qt6-svg' 'qt6-wayland' 'qt6-multimedia' 'qt6-multimedia-ffmpeg' 'xdg-desktop-portal' 'ffmpeg' 'libnotify')
-optdepends=('mediainfo: full technical report in the Source tab')
+optdepends=('mediainfo: full technical report in the Source tab'
+            'vmaf: VMAF in the quality check when ffmpeg has no libvmaf')
 makedepends=('gcc' 'make')
 options=('!debug')
 source=()
