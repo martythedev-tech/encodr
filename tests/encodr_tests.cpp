@@ -915,6 +915,62 @@ private slots:
         QVERIFY(QFileInfo::exists(dir.filePath("out/clip_review.mp4")));
     }
 
+    // On a machine with a GPU encoder that works: detection finds it, and a
+    // real conversion runs on it end to end (no quiet fallback to the CPU),
+    // for each codec it passed; codecs it can't do go to the CPU.
+    void gpuConvertsForReal() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        Hardware hardware;
+        hardware.detect();
+        QTRY_VERIFY_WITH_TIMEOUT(hardware.ready(), 90000);
+        if (hardware.encoders().isEmpty())
+            QSKIP("no GPU encoder works on this machine");
+        for (const Hardware::Encoder &e : hardware.encoders())
+            qInfo() << "GPU found:" << e.name << e.device << e.codecs;
+
+        QTemporaryDir dir, config;
+        const QString source = dir.filePath("clip.mov");
+        QProcess make;
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=25:duration=3",
+                              "-c:v", "mpeg4", "-q:v", "2", source});
+        QVERIFY(make.waitForFinished(30000) && make.exitCode() == 0);
+        Backend backend(nullptr, config.path());
+        backend.setGpuEnabled(true);
+        backend.setHardware(&hardware);
+
+        for (const QString &codec : {QStringLiteral("h264"), QStringLiteral("hevc")}) {
+            Preset p = presetNamed(codec == "h264" ? "review" : "hevc");
+            const QString engine = backend.engineFor(p).first;
+            if (hardware.best(codec).isEmpty()) {
+                QCOMPARE(engine, QString("cpu"));    // the GPU can't: the CPU does it
+                qInfo() << codec << "goes to the CPU: no GPU encoder passed for it";
+                continue;
+            }
+            QVERIFY(engine != "cpu");
+            Job job(1, source);
+            job.setPreset(p);
+            job.setOutputFolder(dir.filePath("out-" + codec));
+            job.probe();
+            QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+            const auto [id, device] = backend.engineFor(p);
+            job.setEngine(id, device);
+            QSignalSpy finished(&job, &Job::finished);
+            QVERIFY(job.start());
+            QVERIFY(finished.wait(90000));
+            QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+            QVERIFY2(job.engine() == id, qPrintable(job.notes().join(" | ")));    // no fallback
+            QVERIFY(std::any_of(job.notes().cbegin(), job.notes().cend(),
+                                [](const QString &n) { return n.startsWith("Encoded on the GPU"); }));
+            QProcess probe;
+            probe.start("ffprobe", {"-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height",
+                                    "-of", "csv=p=0", job.outputPath()});
+            QVERIFY(probe.waitForFinished(20000));
+            QCOMPARE(QString(probe.readAllStandardOutput()).trimmed(), codec + ",1280,720");
+            qInfo() << codec << "converted on" << hardware.nameFor(id) << QFileInfo(job.outputPath()).size() << "bytes";
+        }
+    }
+
     void severalFilesConvertAtOnce() {
         if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
             QSKIP("ffmpeg is not installed");
