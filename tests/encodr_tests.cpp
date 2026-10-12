@@ -550,7 +550,7 @@ private slots:
         job.setSubtitleBurn("track:0");
         QVERIFY(job.runPreset().burnSubtitlePicture);
         const QString line = job.commandLine();
-        QVERIFY2(line.contains("null[sbv];[sbv][0:s:0]overlay=eof_action=pass:format=auto"), qPrintable(line));
+        QVERIFY2(line.contains("null[sbv];[sbv][0:s:0]overlay=eof_action=pass:format=yuv420"), qPrintable(line));
         QVERIFY(!line.contains("subtitles=filename"));
         QVERIFY(job.notes().contains("Subtitles burned in from subtitle track 1"));
 
@@ -587,7 +587,7 @@ private slots:
         const Command cmd = buildCommand(p, info, "/x/in.mov", "/y/out.mp4");
         const QString joined = cmd.arguments.join(' ');
         // Drawn on the picture before the crop, from a canvas stretched to it.
-        QVERIFY2(joined.contains("null[sbv];[0:s:0]scale=1280:720[sbs];[sbv][sbs]overlay=eof_action=pass:format=auto,crop=1280:640:0:40"),
+        QVERIFY2(joined.contains("null[sbv];[0:s:0]scale=1280:720[sbs];[sbv][sbs]overlay=eof_action=pass:format=yuv422p10,crop=1280:640:0:40"),
                  qPrintable(joined));
         QVERIFY(cmd.notes.contains("Picture subtitles go on before the crop: any drawn in the cropped-off part are cut"));
     }
@@ -1366,7 +1366,7 @@ private slots:
         joined = cmd.arguments.join(' ');
         QVERIFY2(joined.contains("crop=960:720:160:0,split[pbg][pfg];[pbg]scale=320:180:force_original_aspect_ratio=increase,"
                                  "crop=320:180,boxblur=11:2,scale=1280:720,eq=brightness=-0.08[pbb];[pfg]null[pff];"
-                                 "[pbb][pff]overlay=160:0:format=auto,setsar=1"), qPrintable(joined));
+                                 "[pbb][pff]overlay=160:0:format=yuv422p10,setsar=1"), qPrintable(joined));
         QVERIFY(cmd.notes.contains("Padded to 16:9 (1280×720): blurred picture at the sides"));
 
         p.cropLeft = p.cropRight = 0;    // already 16:9: nothing added
@@ -1642,6 +1642,24 @@ private slots:
         QCOMPARE(hash(archive, "0:v:0"), hash(dir.filePath("src.mov"), "0:v:0"));    // every pixel
         QCOMPARE(hash(archive, "0:a:0"), hash(dir.filePath("src.mov"), "0:a:0"));    // every sample
 
+        // A full-range source (phones, screen recordings) stays full range.
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=1",
+                              "-c:v", "libx264", "-pix_fmt", "yuvj420p", "-color_range", "pc", dir.filePath("phone.mp4")});
+        QVERIFY(make.waitForFinished(30000) && make.exitCode() == 0);
+        {
+            Job job(2, dir.filePath("phone.mp4"));
+            job.setPreset(presetNamed("ffv1"));
+            job.setOutputFolder(dir.filePath("out"));
+            job.probe();
+            QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+            QVERIFY(job.info().fullRange());
+            QSignalSpy finished(&job, &Job::finished);
+            QVERIFY(job.start());
+            QVERIFY(finished.wait(60000));
+            QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+            QCOMPARE(hash(job.outputPath(), "0:v:0"), hash(dir.filePath("phone.mp4"), "0:v:0"));
+        }
+
         QProcess list;
         list.start("ffmpeg", {"-hide_banner", "-encoders"});
         list.waitForFinished(10000);
@@ -1895,7 +1913,7 @@ private slots:
         // The conversion's own chain, from the frame, with the timecode read
         // on the source's clock there (as a run trimmed to 10 s would).
         QVERIFY2(joined.contains("-ss 10.000 -i /x/in.mov"), qPrintable(joined));
-        QVERIFY(joined.contains("[0:v:0]lut3d=file=/c/warm.cube:interp=tetrahedral,crop=1280:640:0:40"));
+        QVERIFY(joined.contains("[0:v:0]lut3d=file=/c/warm.cube:interp=tetrahedral,scale=out_range=tv,format=yuv422p10le,crop=1280:640:0:40"));
         QVERIFY(joined.contains("timecode='01\\:02\\:25\\:12'"));
         QVERIFY(joined.contains("scale=-2:'min(ih,720)'"));
         QVERIFY(joined.contains("prores_metadata"));    // the colour fix, as in the encode
@@ -2047,7 +2065,7 @@ private slots:
         // The LUT comes before the crop; the logo sizes against what's kept.
         QVERIFY2(joined.indexOf("lut3d=file=/c/j-lut.cube:interp=tetrahedral") < joined.indexOf("crop=1280:640:0:40"), qPrintable(joined));
         QVERIFY(joined.contains("null[lv];movie=filename=/c/j-logo.png,scale=-1:64,format=rgba,colorchannelmixer=aa=0.60[lg];"
-                                "[lv][lg]overlay=x=26:y=H-h-26:format=auto"));
+                                "[lv][lg]overlay=x=26:y=H-h-26:format=yuv422p10"));
         QVERIFY(joined.contains("-color_primaries bt709 -color_trc bt709 -colorspace bt709"));
         QVERIFY(cmd.notes.contains("LUT applied: slog3.cube"));
         QVERIFY(cmd.notes.contains("Logo brand.png at 10% of the height"));
@@ -2124,6 +2142,12 @@ private slots:
             f.waitForFinished(20000);
             return f.readAllStandardOutput();
         };
+        // An RGB logo leaves the picture's range alone: still limited.
+        QProcess range;
+        range.start("ffprobe", {"-v", "error", "-select_streams", "v:0", "-show_entries", "stream=color_range,pix_fmt",
+                                "-of", "csv=p=0", dir.filePath("out/white_review.mp4")});
+        QVERIFY(range.waitForFinished(20000));
+        QCOMPARE(QString(range.readAllStandardOutput()).trimmed(), QString("yuv420p,tv"));
         const QByteArray logo = pixel(14, 14), middle = pixel(160, 120);
         QCOMPARE(logo.size(), 3);
         QVERIFY2(uchar(logo[0]) > 180 && uchar(logo[1]) < 80, "the red logo, top left");

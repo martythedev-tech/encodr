@@ -669,6 +669,25 @@ QStringList loudnessArguments(const Preset &p, const MediaInfo &info, const QStr
 }
 
 namespace {
+// What an overlay works in: the picture's own chroma layout and depth.
+// Left to choose ("auto"), an RGB overlay (a PNG logo, picture subtitles)
+// pulls the whole picture into full-range YUV: every pixel shifts a
+// little, and the file comes out labelled full range.
+QString overlayFormat(const MediaInfo &info) {
+    const QString f = info.pixelFormat;
+    static const QRegularExpression deep("p(10|12|14|16)");
+    const bool high = info.bitDepth > 8 || deep.match(f).hasMatch();
+    const QString chroma = f.contains("444") || f.startsWith("gbr") || f.startsWith("rgb") || f.startsWith("bgr") ? "yuv444"
+                         : f.contains("422") ? "yuv422" : "yuv420";
+    return high ? chroma + "p10" : chroma;
+}
+
+// The same as a pixel format: yuv420p, yuv422p10le…
+QString yuvLayout(const MediaInfo &info) {
+    const QString f = overlayFormat(info);
+    return f.endsWith("p10") ? f + "le" : f + "p";
+}
+
 // The picture's processing, in order, for the encode and the Output still
 // alike: deinterlace, LUT, crop, scale, pad, logo, subtitles, timecode,
 // watermark.
@@ -682,7 +701,10 @@ QStringList videoChain(const Preset &p, const MediaInfo &info, double start, QSt
     // The LUT first: it expects the camera's picture as it was shot.
     const QString lut = p.lutFile.isEmpty() ? p.lut : p.lutFile;
     if (!lut.isEmpty()) {
-        chain << "lut3d=file=" + lut + ":interp=tetrahedral";
+        // The LUT works in RGB; back to ordinary limited-range YUV at once,
+        // or an overlay after it (logo, picture subtitles) takes the RGB
+        // as full range and so does the whole file.
+        chain << "lut3d=file=" + lut + ":interp=tetrahedral,scale=out_range=tv,format=" + yuvLayout(info);
         notes << "LUT applied: " + QFileInfo(p.lut.isEmpty() ? lut : p.lut).fileName();
     }
     // Picture subtitles are drawn for the source's frame, so they go on
@@ -696,9 +718,9 @@ QStringList videoChain(const Preset &p, const MediaInfo &info, double start, QSt
                 && (t.width != info.width || t.height != info.height))
                 canvas = QString("scale=%1:%2").arg(info.width).arg(info.height);
         chain << (canvas.isEmpty()
-                      ? QString("null[sbv];[sbv][0:s:%1]overlay=eof_action=pass:format=auto").arg(p.burnSubtitleTrack)
-                      : QString("null[sbv];[0:s:%1]%2[sbs];[sbv][sbs]overlay=eof_action=pass:format=auto")
-                            .arg(p.burnSubtitleTrack).arg(canvas));
+                      ? QString("null[sbv];[sbv][0:s:%1]overlay=eof_action=pass:format=%2").arg(p.burnSubtitleTrack).arg(overlayFormat(info))
+                      : QString("null[sbv];[0:s:%1]%2[sbs];[sbv][sbs]overlay=eof_action=pass:format=%3")
+                            .arg(p.burnSubtitleTrack).arg(canvas, overlayFormat(info)));
         notes << "Subtitles burned in from " + p.burnSubtitleName;
         if (p.crops())
             notes << "Picture subtitles go on before the crop: any drawn in the cropped-off part are cut";
@@ -729,9 +751,9 @@ QStringList videoChain(const Preset &p, const MediaInfo &info, double start, QSt
             const int bw = std::max(2, pad.width / 4 & ~1), bh = std::max(2, pad.height / 4 & ~1);
             chain << QString("split[pbg][pfg];[pbg]scale=%1:%2:force_original_aspect_ratio=increase,crop=%1:%2,"
                              "boxblur=%3:2,scale=%4:%5,eq=brightness=-0.08[pbb];[pfg]%6[pff];"
-                             "[pbb][pff]overlay=%7:%8:format=auto,setsar=1")
+                             "[pbb][pff]overlay=%7:%8:format=%9,setsar=1")
                          .arg(bw).arg(bh).arg(std::max(1, std::min(bw, bh) / 16)).arg(pad.width).arg(pad.height)
-                         .arg(fit.isEmpty() ? QString("null") : fit).arg(pad.x).arg(pad.y);
+                         .arg(fit.isEmpty() ? QString("null") : fit).arg(pad.x).arg(pad.y).arg(overlayFormat(info));
         } else {
             chain << (fit.isEmpty() ? QString() : fit + ",")
                          + QString("pad=%1:%2:%3:%4:color=black,setsar=1").arg(pad.width).arg(pad.height).arg(pad.x).arg(pad.y);
@@ -758,8 +780,8 @@ QStringList videoChain(const Preset &p, const MediaInfo &info, double start, QSt
             {"br", "x=W-w-%1:y=H-h-%1"}, {"c", "x=(W-w)/2:y=(H-h)/2"}};
         const QString place = places.value(p.logoPosition, places.value("tr")).arg(m);
         chain << QString("null[lv];movie=filename=%1,scale=-1:%2,format=rgba,colorchannelmixer=aa=%3[lg];"
-                         "[lv][lg]overlay=%4:format=auto")
-                     .arg(logo).arg(size).arg(p.logoOpacity / 100.0, 0, 'f', 2).arg(place);
+                         "[lv][lg]overlay=%4:format=%5")
+                     .arg(logo).arg(size).arg(p.logoOpacity / 100.0, 0, 'f', 2).arg(place, overlayFormat(info));
         notes << QString("Logo %1 at %2% of the height").arg(QFileInfo(p.logo.isEmpty() ? logo : p.logo).fileName())
                          .arg(p.logoSize);
     }
@@ -1127,6 +1149,10 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             // Level 3 with slice checksums: damage can be found and kept to
             // one slice; all intra, so any frame can be cut or checked alone.
             a << "-c:v" << "ffv1" << "-level" << "3" << "-g" << "1" << "-slicecrc" << "1" << "-slices" << "16";
+            // Full range stays full range: without the label, ffmpeg would
+            // squeeze the values into limited range on the way in.
+            if (info.fullRange())
+                a << "-color_range" << "pc";
             cmd.notes << "Lossless (FFV1), " + ffv1PixelFormat(info);
         } else if (p.video == "vp9") {
             a << "-c:v" << "libvpx-vp9" << "-crf" << QString::number(p.crf) << "-b:v" << "0"

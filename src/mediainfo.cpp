@@ -152,6 +152,7 @@ MediaInfo parseProbe(const QByteArray &json, const QString &path) {
             info.colorPrimaries = s.value("color_primaries").toString();
             info.colorTransfer = s.value("color_transfer").toString();
             info.colorSpace = s.value("color_space").toString();
+            info.colorRange = s.value("color_range").toString();
             if (info.duration <= 0)
                 info.duration = s.value("duration").toString().toDouble();
         } else if (type == "audio") {
