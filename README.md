@@ -33,6 +33,12 @@ below; and the source details beside live stats. The layout is remembered.
   size of H.264 at the same quality, in about the same time. It needs an
   ffmpeg built with SVT-AV1 (the AppImage's is; Encodr says so if yours
   isn't). It runs on the CPU; GPU AV1 isn't used yet.
+- **Fit a file size.** Ask for "25 MB" instead of a quality, and the H.264,
+  HEVC or AV1 copy comes out at that size or just under it, audio included:
+  two passes on the CPU (one for AV1), the first reading the picture so the
+  second can spend the bits where they're needed. A source that's already
+  smaller keeps its own bitrate, and a size too small for the length says
+  what would do.
 - **FFV1 for archives.** Mathematically lossless video in MKV, in the
   source's own pixel format (10-bit 4:2:2 stays 10-bit 4:2:2), every frame a
   keyframe with checksums per slice, and FLAC audio.

@@ -12,6 +12,7 @@ QVariantMap Preset::toVariant() const {
     return {
         {"id", id}, {"name", name}, {"description", description}, {"suffix", suffix}, {"builtin", builtin},
         {"container", container}, {"video", video}, {"crf", crf}, {"maxrateKbps", maxrateKbps},
+        {"targetSizeMB", targetSizeMB},
         {"speed", speed}, {"maxHeight", maxHeight}, {"audio", audio}, {"audioKbps", audioKbps}, {"loudness", loudness},
         {"deinterlace", deinterlace}, {"burnTimecode", burnTimecode}, {"watermark", watermark},
         {"lut", lut}, {"logo", logo}, {"logoPosition", logoPosition}, {"logoSize", logoSize}, {"logoOpacity", logoOpacity},
@@ -31,6 +32,7 @@ Preset Preset::fromVariant(const QVariantMap &m) {
     p.video = m.value("video", p.video).toString();
     p.crf = m.value("crf", p.crf).toInt();
     p.maxrateKbps = m.value("maxrateKbps", p.maxrateKbps).toInt();
+    p.targetSizeMB = std::max(0, m.value("targetSizeMB", 0).toInt());
     p.speed = m.value("speed", p.speed).toString();
     p.maxHeight = m.value("maxHeight", p.maxHeight).toInt();
     p.audio = m.value("audio", p.audio).toString();
@@ -250,6 +252,9 @@ QString presetProblem(const Preset &p) {
     if (p.copiesVideo() && (!p.lut.isEmpty() || !p.logo.isEmpty()))
         return QString("A %1 changes the picture, so the video can't be copied as it is. Choose a video codec, "
                        "or remove it.").arg(p.lut.isEmpty() ? "logo" : "LUT");
+    if (p.fitsSize() && (pcm || p.audio == "flac" || p.audio == "alac"))
+        return "Uncompressed and lossless audio take an unknown share of a file size. To fit a size, choose AAC, "
+               "Opus or MP3, or copy the audio.";
     if (p.copiesAudio() && loudnessTarget(p.loudness).lufs < 0)
         return "Setting the loudness changes the audio, so it can't be copied as it is. Choose an audio codec, "
                "or leave the loudness as recorded.";
@@ -359,8 +364,10 @@ bool knownTag(const QString &value) {
     return !value.isEmpty() && value != "unknown" && value != "reserved" && value != "reserved0";
 }
 
+// A size target runs on the CPU: two-pass x264/x265 land on the size; the
+// GPU encoders' single pass doesn't.
 bool onGpu(const Preset &p) {
-    return p.usesVideoEncoder() && (p.hardware == "nvenc" || p.hardware == "qsv" || p.hardware == "vaapi");
+    return p.usesVideoEncoder() && !p.fitsSize() && (p.hardware == "nvenc" || p.hardware == "qsv" || p.hardware == "vaapi");
 }
 
 QString pixelFormatFor(const Preset &p) {
@@ -941,6 +948,77 @@ QStringList outputStillArguments(const Preset &p, const MediaInfo &info, const Q
     return a;
 }
 
+namespace {
+// What the output's audio takes, in kbps: copied tracks at the source's own
+// rate (320 when it isn't known), encoded ones at the preset's.
+double audioKbps(const Preset &p, const MediaInfo &info) {
+    if (info.audio.isEmpty() || p.audio == "none" || p.audioOnly())
+        return 0;
+    const int streams = audioStreamCount(p, info);
+    if (!p.copiesAudio())
+        return double(streams) * p.audioKbps;
+    double total = 0;
+    for (int k = 0; k < streams && k < info.audio.size(); ++k)
+        total += info.audio[k].bitrate > 0 ? info.audio[k].bitrate / 1000.0 : 320;
+    return total;
+}
+
+// 2% of the size is left for the container (headers, index, subtitles):
+// enough on short and long files alike.
+constexpr double kFitShare = 0.98;
+// Below this the picture falls apart, whatever the codec.
+constexpr int kFitMinimumKbps = 100;
+
+QString lengthText(double seconds) {
+    const int s = int(std::ceil(seconds));
+    return s >= 3600 ? QString("%1:%2:%3").arg(s / 3600).arg(s / 60 % 60, 2, 10, QChar('0')).arg(s % 60, 2, 10, QChar('0'))
+                     : QString("%1:%2").arg(s / 60).arg(s % 60, 2, 10, QChar('0'));
+}
+
+// What the size allows the picture, before the source's own rate is
+// considered.
+int sizeKbps(const Preset &p, const MediaInfo &info, double length) {
+    const double bits = p.targetSizeMB * 8e6 * kFitShare;
+    return int(std::floor(bits / length / 1000 - audioKbps(p, info)));
+}
+}
+
+int sourceVideoKbps(const MediaInfo &info) {
+    if (info.videoBitrate > 0)
+        return int(info.videoBitrate / 1000);
+    // MKV and WebM give only the whole file's rate.
+    double audio = 0;
+    for (const AudioTrack &t : info.audio)
+        audio += t.bitrate / 1000.0;
+    return info.bitrate > 0 ? std::max(0, int(info.bitrate / 1000 - audio)) : 0;
+}
+
+// A size is a ceiling: more bits than the source's own picture has only
+// make the file bigger, not better.
+int fitVideoKbps(const Preset &p, const MediaInfo &info, double length) {
+    if (!p.fitsSize() || length <= 0)
+        return 0;
+    const int kbps = sizeKbps(p, info, length);
+    const int source = sourceVideoKbps(info);
+    return source > 0 ? std::min(kbps, source) : kbps;
+}
+
+QString fitProblem(const Preset &p, const MediaInfo &info, double length) {
+    if (!p.fitsSize() || length <= 0 || !info.hasVideo)
+        return {};
+    const int kbps = sizeKbps(p, info, length);
+    if (kbps >= kFitMinimumKbps)
+        return {};
+    const double audio = audioKbps(p, info);
+    const int needed = int(std::ceil((kFitMinimumKbps + audio) * 1000 * length / 8e6 / kFitShare));
+    return QString("%1 MB is too small for %2 of video%3. Choose %4 MB or more%5, or trim the file.")
+        .arg(p.targetSizeMB)
+        .arg(lengthText(length))
+        .arg(kbps <= 0 ? QString(": the audio alone takes it") : QString(": the picture would get %1 kbps").arg(kbps))
+        .arg(needed)
+        .arg(audio > 64 ? QString(", lower the audio bitrate") : QString());
+}
+
 Command buildCommand(const Preset &p, const MediaInfo &info, const QString &input,
                      const QString &output, double start, double length,
                      const QString &previewOut, const QString &previewSource,
@@ -968,7 +1046,21 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
 
     a << inputArguments(p, info, input, start, length, withVideo);
 
-    const bool withAudio = !info.audio.isEmpty() && p.audio != "none";
+    // Fit to size: the first of two passes only reads the picture.
+    const bool fit = withVideo && p.fitsSize();
+    const bool firstPass = fit && p.twoPass() && p.pass == 1;
+    const int fitKbps = fit ? fitVideoKbps(p, info, length > 0 ? length : info.duration) : 0;
+    const QString passLog = p.passLog.isEmpty() ? QString("encodr-pass") : p.passLog;
+    if (fit && !firstPass) {
+        const QString passes = p.twoPass() ? QString(", in two passes") : QString();
+        if (fitKbps < sizeKbps(p, info, length > 0 ? length : info.duration))
+            cmd.notes << QString("Under %1 MB already at the source's own bitrate: %2 kbps for the picture%3")
+                             .arg(p.targetSizeMB).arg(fitKbps).arg(passes);
+        else
+            cmd.notes << QString("Fitted to %1 MB: %2 kbps for the picture%3").arg(p.targetSizeMB).arg(fitKbps).arg(passes);
+    }
+
+    const bool withAudio = !info.audio.isEmpty() && p.audio != "none" && !firstPass;
     QStringList graph;
     // Clips that differ come out of the join as one picture and one sound.
     const QString videoIn = p.joinsByFilter() ? "[jv]" : "[0:v:0]";
@@ -1056,7 +1148,7 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
     // DVD) only fit MKV, which takes every kind as it is.
     QStringList subtitleMaps;
     QString subtitleCodec;
-    if (withVideo && !info.subtitles.isEmpty()) {
+    if (withVideo && !info.subtitles.isEmpty() && !firstPass) {
         int pictures = 0;
         if (p.container == "mkv" || p.container == "source") {
             subtitleCodec = "copy";
@@ -1140,16 +1232,29 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
                 a << "-tag:v" << "hvc1";
             cmd.notes << QString("Encoded on the GPU (%1)").arg(gpuName(p.hardware));
         } else if (p.video == "h264") {
-            a << "-c:v" << "libx264" << "-preset" << p.speed << "-crf" << QString::number(p.crf)
-              << "-profile:v" << "high";
-            if (p.maxrateKbps > 0)
+            a << "-c:v" << "libx264" << "-preset" << p.speed;
+            if (fit)
+                a << "-b:v" << QString("%1k").arg(fitKbps) << "-pass" << QString::number(p.pass == 1 ? 1 : 2)
+                  << "-passlogfile" << passLog;
+            else
+                a << "-crf" << QString::number(p.crf);
+            a << "-profile:v" << "high";
+            if (p.maxrateKbps > 0 && !fit)
                 a << "-maxrate" << QString("%1k").arg(p.maxrateKbps) << "-bufsize" << QString("%1k").arg(p.maxrateKbps * 2);
         } else if (p.video == "hevc") {
             QString params = "log-level=error";
-            if (p.maxrateKbps > 0)
+            if (p.maxrateKbps > 0 && !fit)
                 params += QString(":vbv-maxrate=%1:vbv-bufsize=%2").arg(p.maxrateKbps).arg(p.maxrateKbps * 2);
-            a << "-c:v" << "libx265" << "-preset" << p.speed << "-crf" << QString::number(p.crf)
-              << "-tag:v" << "hvc1" << "-x265-params" << params;
+            // x265 takes its passes through its own parameters (':' separates
+            // them, so the stats path mustn't hold one).
+            if (fit)
+                params += QString(":pass=%1:stats=%2.x265").arg(p.pass == 1 ? 1 : 2).arg(QString(passLog).replace(':', '_'));
+            a << "-c:v" << "libx265" << "-preset" << p.speed;
+            if (fit)
+                a << "-b:v" << QString("%1k").arg(fitKbps);
+            else
+                a << "-crf" << QString::number(p.crf);
+            a << "-tag:v" << "hvc1" << "-x265-params" << params;
         } else if (p.video.startsWith("prores")) {
             const QStringList profiles{"prores_proxy", "prores_lt", "prores_422", "prores_hq"};
             a << "-c:v" << "prores_ks" << "-profile:v" << QString::number(std::max<qsizetype>(0, profiles.indexOf(p.video)))
@@ -1157,9 +1262,12 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
         } else if (p.video.startsWith("dnxhr")) {
             a << "-c:v" << "dnxhd" << "-profile:v" << p.video;
         } else if (p.video == "av1") {
-            a << "-c:v" << "libsvtav1" << "-preset" << QString::number(svtPreset(p.speed))
-              << "-crf" << QString::number(std::clamp(p.crf + 15, 1, 63));
-            if (p.maxrateKbps > 0)
+            a << "-c:v" << "libsvtav1" << "-preset" << QString::number(svtPreset(p.speed));
+            if (fit)
+                a << "-b:v" << QString("%1k").arg(fitKbps);    // SVT-AV1's one-pass VBR
+            else
+                a << "-crf" << QString::number(std::clamp(p.crf + 15, 1, 63));
+            if (p.maxrateKbps > 0 && !fit)
                 a << "-maxrate" << QString("%1k").arg(p.maxrateKbps) << "-bufsize" << QString("%1k").arg(p.maxrateKbps * 2);
         } else if (p.video == "ffv1") {
             // Level 3 with slice checksums: damage can be found and kept to
@@ -1220,6 +1328,13 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
         a << "-avoid_negative_ts" << "make_zero";
         if (copyVideo)
             cmd.notes << "Cut without re-encoding: it starts on the keyframe at or before the in point";
+    }
+    if (firstPass) {
+        // Nothing is written: the pass leaves its notes in the pass log.
+        a << "-f" << "null" << "-";
+        if (previews)
+            a << previewOutput("[pvo]", previewOut) << previewOutput("[svo]", previewSource);
+        return cmd;
     }
     const bool quicktime = container == "mp4" || container == "mov" || container == "m4a";
     if (quicktime && withVideo && !info.timecode.isEmpty()) {

@@ -59,6 +59,7 @@ Job::Job(int id, const QString &inputPath, QObject *parent)
     connect(this, &Job::padChanged, this, redraw);
     connect(this, &Job::subtitlesChanged, this, redraw);
     m_subtitleLink = stem + "-subtitles";
+    m_passLog = stem + "-pass";
 }
 
 Job::~Job() {
@@ -85,6 +86,7 @@ Job::~Job() {
         QFile::remove(m_subtitleLink + name);
     QFile::remove(m_subtitleLink + "-source." + QFileInfo(m_input).suffix().toLower());
     QFile::remove(m_subtitleLink + "-join.txt");
+    removePassLog();
     QFile::remove(m_finishedStill);
     for (const QString &name : {"-quality.log", "-quality.json", "-reference.y4m", "-output.y4m"})
         QFile::remove(m_subtitleLink + name);
@@ -145,6 +147,7 @@ Preset Job::runPreset() const {
         if (m_engine == "vaapi")
             p.hardwareVendor = Hardware::vendorOf(m_engineDevice);
     }
+    p.passLog = m_passLog;
     if (m_subtitleBurn.startsWith("track:")) {
         const int track = m_subtitleBurn.mid(6).toInt();
         // si= counts subtitle streams only, as the track number does.
@@ -198,9 +201,11 @@ void Job::setEngine(const QString &engine, const QString &device) {
     emit presetChanged();
 }
 
-Command Job::command(const QString &output, bool previews) const {
+Command Job::command(const QString &output, bool previews, int pass) const {
     const bool cut = trimmed();
-    return buildCommand(runPreset(), runInfo(), m_input, output, cut ? m_trimIn : -1, cut ? length() : -1,
+    Preset p = runPreset();
+    p.pass = pass;
+    return buildCommand(p, runInfo(), m_input, output, cut ? m_trimIn : -1, cut ? length() : -1,
                         previews ? m_previewOut : QString(), previews ? m_previewSource : QString(),
                         m_loudnessReady ? m_loudness : QList<Loudness>());
 }
@@ -208,7 +213,18 @@ Command Job::command(const QString &output, bool previews) const {
 QString Job::commandLine() const {
     if (!m_info.valid)
         return {};
+    if (runPreset().twoPass())
+        return "ffmpeg " + shellQuote(command(outputPath(), false, 1).arguments) + " && ffmpeg "
+               + shellQuote(command(outputPath(), false, 2).arguments);
     return "ffmpeg " + shellQuote(command(outputPath(), false).arguments);
+}
+
+// x264 leaves <log>-0.log and .mbtree, x265 <log>.x265 and .cutree.
+void Job::removePassLog() const {
+    const QFileInfo log(m_passLog);
+    QDir dir = log.dir();
+    for (const QString &name : dir.entryList({log.fileName() + "*"}, QDir::Files))
+        dir.remove(name);
 }
 
 QStringList Job::notes() const {
@@ -444,8 +460,10 @@ QString Job::presetProblemText() const {
     if (m_preset.video == "av1" && m_engine == "missing")
         return "This ffmpeg can't make AV1: it was built without SVT-AV1. The Encodr AppImage's ffmpeg has it, "
                "as do most distributions' (on Arch, ffmpeg with svt-av1). Choose another codec meanwhile.";
-    const QString problem = presetProblem(m_preset);
-    return problem.isEmpty() ? sourceProblem(runPreset(), runInfo()) : problem;
+    QString problem = presetProblem(m_preset);
+    if (problem.isEmpty())
+        problem = sourceProblem(runPreset(), runInfo());
+    return problem.isEmpty() ? fitProblem(runPreset(), runInfo(), length()) : problem;
 }
 
 double Job::length() const {
@@ -1116,6 +1134,8 @@ bool Job::launch() {
     m_cpuHistory.clear();
     m_wattHistory.clear();
     m_cancelling = false;
+    m_pass = 0;
+    m_passStartedAt = 0;
     m_freeSpace = QStorageInfo(m_outputFolder).bytesAvailable();
 
     m_activeMsBeforePause = 0;
@@ -1175,11 +1195,15 @@ void Job::measureLoudness(int stream) {
 
 void Job::encode() {
     linkSubtitles();
-    const Command command = this->command(partialPathFor(m_finalPath), true);
-    m_runNotes = command.notes;
-    if (!m_fallbackNote.isEmpty())
-        m_runNotes.prepend(m_fallbackNote);
-    m_message.clear();
+    if (m_pass == 0 && runPreset().twoPass())
+        m_pass = 1;
+    const Command command = this->command(partialPathFor(m_finalPath), true, m_pass);
+    if (m_pass != 1) {
+        m_runNotes = command.notes;
+        if (!m_fallbackNote.isEmpty())
+            m_runNotes.prepend(m_fallbackNote);
+    }
+    m_message = m_pass == 1 ? QString("Pass 1 of 2: reading the picture, so the size comes out right…") : QString();
     emit stateChanged();
 
     auto *process = new QProcess(this);
@@ -1345,7 +1369,7 @@ void Job::readProgress() {
         m_recentBitrate = m_last.bitrateKbps;
     }
 
-    m_estimate = estimate(length(), m_last.outTime, t, m_last.totalSize, m_recentSpeed);
+    m_estimate = estimate(length(), m_last.outTime, t - m_passStartedAt, m_last.totalSize, m_recentSpeed);
     // ffmpeg says "end" whenever it stops, stopped by hand included: only a
     // run that wasn't stopped is complete.
     if (m_last.end && !m_cancelling) {
@@ -1367,6 +1391,21 @@ void Job::readProgress() {
 }
 
 void Job::onFinished(int code, QProcess::ExitStatus status) {
+    // The first of two passes done: on to the second, the real file.
+    if (m_pass == 1 && !m_cancelling && status == QProcess::NormalExit && code == 0) {
+        if (m_process)
+            m_process->deleteLater();
+        m_pass = 2;
+        m_passStartedAt = activeSeconds();
+        m_parser = ProgressParser();
+        m_last = ProgressSample();
+        m_window.clear();
+        m_errors.clear();
+        m_recentSpeed = m_recentFps = m_recentBitrate = 0;
+        encode();
+        return;
+    }
+    removePassLog();
     if (m_clock.isValid()) {
         m_activeMsBeforePause += m_clock.elapsed();
         m_clock.invalidate();

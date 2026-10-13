@@ -26,6 +26,12 @@ struct Preset {
     QString video = "h264";
     int crf = 18;
     int maxrateKbps = 16000;       // 0 = no cap
+    // Fit a file size instead of a quality: the whole file, audio included,
+    // in MB (millions of bytes); 0 = off. H.264 and HEVC take two passes on
+    // the CPU (the first only reads the picture, so the second can share the
+    // bits out where they're needed); AV1 one (ffmpeg's SVT-AV1 has no
+    // second pass). The quality and the bitrate cap are then unused.
+    int targetSizeMB = 0;
     // x264/x265 preset. "fast" measured 2.4x quicker than "slow" on a Ki Pro
     // clip with the same VMAF within 0.2 points, so slower presets cost hours
     // for no visible gain.
@@ -81,8 +87,14 @@ struct Preset {
     // Plain-named links to the LUT and logo for ffmpeg's filters; set per run.
     QString lutFile;
     QString logoFile;
+    // Which pass of a fit-to-size run this is (0 = a single pass) and where
+    // the encoder keeps its notes between the two; set per run.
+    int pass = 0;
+    QString passLog;
 
     bool usesVideoEncoder() const { return video == "h264" || video == "hevc"; }
+    bool fitsSize() const { return targetSizeMB > 0 && (video == "h264" || video == "hevc" || video == "av1"); }
+    bool twoPass() const { return fitsSize() && video != "av1"; }
     bool audioOnly() const { return video == "none"; }
     bool copiesVideo() const { return video == "copy"; }
     bool copiesAudio() const { return audio == "copy"; }
@@ -145,6 +157,16 @@ QStringList loudnessArguments(const Preset &preset, const MediaInfo &info, const
 // A strip of `count` thumbnails across the source, side by side in one JPEG,
 // from fast seeks (nothing decoded beyond the frames themselves).
 QStringList stripArguments(const MediaInfo &info, const QString &input, int count, int height, const QString &jpeg);
+
+// Fit to size: the picture's bitrate (kbps) that brings a `length`-second
+// file to the preset's size, after its audio and a little for the
+// container; 0 when the preset doesn't fit a size. Can be negative: the
+// audio alone is too big.
+// Never more than the source's own picture (sourceVideoKbps, 0 = unknown).
+int fitVideoKbps(const Preset &preset, const MediaInfo &info, double length);
+int sourceVideoKbps(const MediaInfo &info);
+// Why the size can't be met for this length, in plain words; empty when fine.
+QString fitProblem(const Preset &preset, const MediaInfo &info, double length);
 
 Command buildCommand(const Preset &preset, const MediaInfo &info, const QString &input,
                      const QString &output, double start = -1, double length = -1,

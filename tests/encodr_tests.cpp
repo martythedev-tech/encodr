@@ -2221,6 +2221,114 @@ private slots:
         QVERIFY2(uchar(middle[0]) < 60 && uchar(middle[1]) < 60 && uchar(middle[2]) < 60, "white inverted to black by the LUT");
     }
 
+    void fitsAFileSize() {
+        MediaInfo info = parseProbe(kKiPro, "/x/in.mov");
+        info.duration = 100;
+        Preset p = presetNamed("share");    // H.264, AAC 192
+        p.targetSizeMB = 25;
+        p.hardware = "qsv";    // a size target stays on the CPU, whatever the setting
+        QVERIFY(p.fitsSize() && p.twoPass());
+        const int audio = audioStreamCount(p, info) * 192;
+        const int kbps = int(std::floor(25 * 8e6 * 0.98 / 100 / 1000 - audio));
+        QCOMPARE(fitVideoKbps(p, info, 100), kbps);
+        QVERIFY(fitVideoKbps(p, info, 50) > 2 * kbps);    // trimmed to half: twice the bits a second
+
+        p.passLog = "/c/log";
+        p.pass = 1;    // reads the picture only: no audio, no subtitles, nothing written
+        Command cmd = buildCommand(p, info, "/x/in.mov", "/y/out.mp4");
+        QString joined = cmd.arguments.join(' ');
+        QVERIFY2(joined.contains(QString("-c:v libx264 -preset medium -b:v %1k -pass 1 -passlogfile /c/log -profile:v high").arg(kbps)),
+                 qPrintable(joined));
+        QVERIFY2(joined.contains("-an") && !joined.contains("-c:a") && joined.endsWith("-f null -"), qPrintable(joined));
+        QVERIFY(!joined.contains("-maxrate") && !joined.contains("-crf"));
+        p.pass = 2;
+        cmd = buildCommand(p, info, "/x/in.mov", "/y/out.mp4");
+        joined = cmd.arguments.join(' ');
+        QVERIFY2(joined.contains(QString("-b:v %1k -pass 2 -passlogfile /c/log").arg(kbps)), qPrintable(joined));
+        QVERIFY(joined.contains("-c:a aac -b:a 192k") && joined.endsWith("/y/out.mp4"));
+        QVERIFY2(cmd.notes.contains(QString("Fitted to 25 MB: %1 kbps for the picture, in two passes").arg(kbps)),
+                 qPrintable(cmd.notes.join(" | ")));
+
+        // A size is a ceiling: a source that's smaller keeps its own rate.
+        MediaInfo small = info;
+        small.videoBitrate = 1000000;
+        QCOMPARE(fitVideoKbps(p, small, 100), 1000);
+        cmd = buildCommand(p, small, "/x/in.mov", "/y/out.mp4");
+        QVERIFY(cmd.arguments.join(' ').contains("-b:v 1000k -pass 2"));
+        QVERIFY2(cmd.notes.contains("Under 25 MB already at the source's own bitrate: 1000 kbps for the picture, in two passes"),
+                 qPrintable(cmd.notes.join(" | ")));
+        small.videoBitrate = 0;    // MKV: the file's rate, less its audio
+        small.bitrate = 3000000;
+        QCOMPARE(sourceVideoKbps(small), 3000 - int(std::lround(info.audio[0].bitrate / 1000.0 + info.audio[1].bitrate / 1000.0)));
+
+        // HEVC passes through x265's own parameters; AV1 has one pass.
+        p.video = "hevc";
+        p.pass = 1;
+        joined = buildCommand(p, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains(QString("-c:v libx265 -preset medium -b:v %1k").arg(kbps)) && joined.contains(":pass=1:stats=/c/log.x265"),
+                 qPrintable(joined));
+        p.video = "av1";
+        p.pass = 0;
+        QVERIFY(!p.twoPass());
+        joined = buildCommand(p, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains(QString("-c:v libsvtav1 -preset 7 -b:v %1k").arg(kbps)) && !joined.contains("-crf"), qPrintable(joined));
+
+        // Too small a size for the length says what would do.
+        p.video = "h264";
+        p.targetSizeMB = 1;
+        const QString tooSmall = fitProblem(p, info, 600);
+        QVERIFY2(tooSmall.startsWith("1 MB is too small for 10:00 of video: the audio alone takes it. Choose "), qPrintable(tooSmall));
+        QVERIFY(tooSmall.contains("lower the audio bitrate"));
+        QVERIFY(fitProblem(p, info, 2).isEmpty());
+        // Lossless audio has no known size.
+        p.container = "mov";
+        p.audio = "pcm24";
+        QVERIFY(presetProblem(p).contains("To fit a size"));
+        p.targetSizeMB = 0;
+        QVERIFY(presetProblem(p).isEmpty());
+
+        p.targetSizeMB = 8;
+        QCOMPARE(Preset::fromVariant(p.toVariant()).targetSizeMB, 8);
+    }
+
+    void fitsAFileSizeForReal() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        const QString source = dir.filePath("noisy.mov");
+        QProcess make;    // noise, so the picture would take far more than the size allows
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=8",
+                              "-f", "lavfi", "-i", "sine=frequency=440:duration=8", "-vf", "noise=alls=30:allf=t",
+                              "-c:v", "libx264", "-crf", "10", "-preset", "ultrafast", "-c:a", "pcm_s16le", source});
+        QVERIFY(make.waitForFinished(60000));
+        QCOMPARE(make.exitCode(), 0);
+
+        Job job(1, source);
+        Preset p = presetNamed("share");
+        p.speed = "ultrafast";
+        p.audioKbps = 96;
+        p.targetSizeMB = 1;
+        job.setPreset(p);
+        job.setOutputFolder(dir.filePath("out"));
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        QVERIFY2(job.commandLine().contains("-pass 1") && job.commandLine().contains(" && ffmpeg "), qPrintable(job.commandLine()));
+
+        QSignalSpy finished(&job, &Job::finished);
+        QVERIFY(job.start());
+        QTRY_VERIFY_WITH_TIMEOUT(job.message().startsWith("Pass 1 of 2"), 10000);
+        QVERIFY(finished.wait(120000));
+        QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+        const QFileInfo out(dir.filePath("out/noisy_share.mp4"));
+        QVERIFY(out.exists());
+        qInfo() << "1 MB asked, got" << out.size();
+        // At most the size asked for, and not far under it.
+        QVERIFY2(out.size() <= 1000000 && out.size() > 900000, qPrintable(QString::number(out.size())));
+        // The passes' notes are gone.
+        const QFileInfo log(QString(job.previewOut()).replace("-out.jpg", "-pass"));
+        QVERIFY(log.dir().entryList({log.fileName() + "*"}, QDir::Files).isEmpty());
+    }
+
     void convertsARealClip() {
         if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
             QSKIP("ffmpeg is not installed");

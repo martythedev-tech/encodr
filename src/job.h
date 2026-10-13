@@ -36,6 +36,10 @@ class Job : public QObject {
     Q_PROPERTY(QString outputFolder READ outputFolder WRITE setOutputFolder NOTIFY presetChanged)
     Q_PROPERTY(QString outputPath READ outputPath NOTIFY presetChanged)
     Q_PROPERTY(QString commandLine READ commandLine NOTIFY presetChanged)
+    // Fit to size: the picture's bitrate in kbps for this file (0 = no size set).
+    Q_PROPERTY(int fitKbps READ fitKbps NOTIFY presetChanged)
+    // …held at the source's own rate, the source being under the size already.
+    Q_PROPERTY(bool fitAtSourceRate READ fitAtSourceRate NOTIFY presetChanged)
     Q_PROPERTY(QString engine READ engine NOTIFY presetChanged)
     Q_PROPERTY(QString engineDevice READ engineDevice NOTIFY presetChanged)
     Q_PROPERTY(QStringList notes READ notes NOTIFY presetChanged)
@@ -158,6 +162,8 @@ public:
     // The naming pattern (see naming.h); set by the backend for every job.
     void setNamePattern(const QString &pattern);
     QString commandLine() const;
+    int fitKbps() const { return m_info.valid ? fitVideoKbps(runPreset(), runInfo(), length()) : 0; }
+    bool fitAtSourceRate() const { return fitKbps() > 0 && fitKbps() == sourceVideoKbps(runInfo()); }
     QStringList notes() const;
 
     double percent() const { return m_estimate.fraction * 100.0; }
@@ -330,7 +336,9 @@ private:
     void makePoster(double at);
     void makeStrip();
     void makeOutputStill();
-    Command command(const QString &output, bool previews) const;
+    // `pass`: which pass of a fit-to-size run (0 = the run's single pass).
+    Command command(const QString &output, bool previews, int pass = 0) const;
+    void removePassLog() const;
     void checkPreview();
     void readProgress();
     void onFinished(int code, QProcess::ExitStatus status);
@@ -354,6 +362,10 @@ private:
     QString m_fallbackNote;     // why a GPU run was redone on the CPU
     QList<Loudness> m_loudness;     // measured for this run, one per audio stream
     bool m_loudnessReady = false;
+    // Fit to size: the pass running (0 = a single pass), and when the second
+    // started, so its time estimate isn't skewed by the quicker first.
+    int m_pass = 0;
+    double m_passStartedAt = 0;
     double m_trimIn = 0;
     double m_trimOut = 0;       // 0 = the end
     double m_posterTime = 0;
@@ -432,6 +444,7 @@ private:
     double m_lastHistoryAt = -1;
 
     QString m_previewOut;
+    QString m_passLog;
     QString m_previewSource;
     int m_previewStamp = 0;
     bool m_hasLivePreview = false;

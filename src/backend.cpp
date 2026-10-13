@@ -322,7 +322,8 @@ QPair<QString, QString> Backend::engineFor(const Preset &preset) const {
     // AV1 runs on the CPU through SVT-AV1, which not every ffmpeg has.
     if (preset.video == "av1")
         return {m_hardware && !m_hardware->canEncode("libsvtav1") ? "missing" : "cpu", {}};
-    if (!m_gpuEnabled || !m_hardware || !preset.usesVideoEncoder() || preset.hardware == "cpu")
+    // A size target needs two passes, which only the CPU encoders take.
+    if (!m_gpuEnabled || !m_hardware || !preset.usesVideoEncoder() || preset.hardware == "cpu" || preset.fitsSize())
         return {"cpu", {}};
     const QString wanted = preset.hardware == "auto" ? m_hardware->best(preset.video) : preset.hardware;
     for (const auto &e : m_hardware->encoders())

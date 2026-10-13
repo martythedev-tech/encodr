@@ -11,6 +11,8 @@ ScrollView {
     readonly property bool locked: job === null || job.state === "running" || job.state === "paused" || job.state === "probing"
     readonly property bool lossyVideo: p.video === "h264" || p.video === "hevc" || p.video === "av1" || p.video === "vp9"
     readonly property bool lossyAudio: p.audio === "aac" || p.audio === "opus" || p.audio === "mp3"
+    readonly property bool canFit: p.video === "h264" || p.video === "hevc" || p.video === "av1"
+    readonly property bool fits: canFit && (p.targetSizeMB || 0) > 0
     clip: true
     contentWidth: availableWidth
 
@@ -148,7 +150,7 @@ ScrollView {
                 }
                 Field {
                     label: "Quality"
-                    visible: root.lossyVideo
+                    visible: root.lossyVideo && !root.fits
                     ColumnLayout {
                         width: Math.min(340, parent.width)
                         spacing: 0
@@ -172,7 +174,7 @@ ScrollView {
                 }
                 Field {
                     label: "Bitrate cap"
-                    visible: p.video === "h264" || p.video === "hevc" || p.video === "av1"
+                    visible: root.canFit && !root.fits
                     RowLayout {
                         width: parent.width
                         SpinBox {
@@ -188,6 +190,37 @@ ScrollView {
                         Text { text: "Mbps · 0 means no cap"; color: theme.dim; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
                     }
                 }
+                // A size instead of a quality: the bitrate comes from the length.
+                Field {
+                    label: "Fit a size"
+                    visible: root.canFit
+                    RowLayout {
+                        width: parent.width
+                        SpinBox {
+                            implicitHeight: 32
+                            topInset: 0
+                            bottomInset: 0
+                            font.pixelSize: 12
+                            from: 0; to: 100000; editable: true
+                            enabled: !root.locked
+                            value: root.p.targetSizeMB || 0
+                            onValueModified: root.edit("targetSizeMB", value)
+                        }
+                        Text {
+                            text: {
+                                if (!root.fits)
+                                    return "MB · 0 means the quality decides";
+                                var kbps = job ? job.fitKbps : 0;
+                                var rate = kbps >= 1000 ? (kbps / 1000).toFixed(1) + " Mbps" : kbps + " kbps";
+                                if (job && job.fitAtSourceRate)
+                                    return "MB · the source is smaller already: it keeps its own " + rate;
+                                return "MB with the audio" + (kbps > 0 ? " · " + rate + " for the picture" : "")
+                                       + (root.p.video === "av1" ? ", one pass" : ", two passes on the CPU");
+                            }
+                            color: theme.dim; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true
+                        }
+                    }
+                }
                 Field {
                     label: "Encoder effort"
                     visible: p.video === "h264" || p.video === "hevc" || p.video === "av1"
@@ -199,7 +232,7 @@ ScrollView {
                 }
                 Field {
                     label: "Runs on"
-                    visible: (p.video === "h264" || p.video === "hevc") && backend.gpuEnabled
+                    visible: (p.video === "h264" || p.video === "hevc") && backend.gpuEnabled && !root.fits
                     ColumnLayout {
                         width: Math.min(340, parent.width)
                         spacing: 4
