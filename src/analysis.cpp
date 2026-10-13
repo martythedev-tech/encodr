@@ -216,3 +216,33 @@ QString edlFromCuts(const QList<Moment> &moments, const MediaInfo &info, const Q
     }
     return out;
 }
+
+QStringList waveformArguments(const QString &input) {
+    return {"-nostdin", "-hide_banner", "-loglevel", "error", "-i", input, "-map", "0:a:0", "-vn", "-sn", "-dn",
+            "-ac", "1", "-ar", QString::number(kWaveformRate), "-f", "s16le", "-"};
+}
+
+WaveformScan::WaveformScan(qint64 samples, int slices) : m_total(std::max<qint64>(1, samples)), m_peak(slices, 0) {}
+
+void WaveformScan::add(const QByteArray &pcm) {
+    const QByteArray data = m_odd + pcm;
+    const qsizetype whole = data.size() / 2 * 2;
+    m_odd = data.mid(whole);
+    const int slices = m_peak.size();
+    for (qsizetype i = 0; i < whole; i += 2, ++m_seen) {
+        const qint16 v = qint16(quint16(quint8(data[i])) | quint16(quint8(data[i + 1])) << 8);
+        const int level = v == -32768 ? 32767 : std::abs(int(v));
+        // A file a little longer than its stated length piles into the last slice.
+        const int slice = int(std::min<qint64>(slices - 1, m_seen * slices / m_total));
+        m_peak[slice] = std::max(m_peak[slice], level);
+    }
+}
+
+QVariantList WaveformScan::peaks() const {
+    const int loudest = m_peak.isEmpty() ? 0 : *std::max_element(m_peak.begin(), m_peak.end());
+    QVariantList out;
+    out.reserve(m_peak.size());
+    for (int p : m_peak)
+        out << (loudest > 0 ? std::sqrt(double(p) / loudest) : 0.0);
+    return out;
+}

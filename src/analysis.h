@@ -33,6 +33,28 @@ QStringList barArguments(const MediaInfo &info, const QString &input, int sample
 // Empty margins when there are no bars worth removing.
 QMargins parseBars(const QByteArray &log, const MediaInfo &info);
 
+// The waveform under the timeline: the first audio track as mono 16-bit
+// PCM at a low rate on stdout, read in pieces as ffmpeg writes it.
+constexpr int kWaveformRate = 4000;
+QStringList waveformArguments(const QString &input);
+class WaveformScan {
+public:
+    // `samples`: how many the whole file holds (its length × the rate), so
+    // each lands in its slice of the timeline as it arrives.
+    WaveformScan(qint64 samples, int slices);
+    void add(const QByteArray &pcm);
+    // The loudest moment of each slice, 0 to 1 against the file's own
+    // loudest (a quiet recording still fills the lane), square-rooted so
+    // quiet passages still show. All 0 for silence.
+    QVariantList peaks() const;
+
+private:
+    qint64 m_total;
+    qint64 m_seen = 0;
+    QByteArray m_odd;    // half a sample left over from the last piece
+    QList<int> m_peak;
+};
+
 // The shots between cuts as a CMX 3600 edit decision list, on the source's
 // own timecode, for Resolve, Premiere or Avid.
 QString edlFromCuts(const QList<Moment> &moments, const MediaInfo &info, const QString &title);

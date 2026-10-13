@@ -625,6 +625,7 @@ void Job::probe() {
         emit trimChanged();    // the out point defaults to the end, now known
         makePoster(m_info.duration * 0.1);
         makeStrip();
+        scanWaveform();
         scanLevels(0);
     });
     process->start("ffprobe", {"-v", "error", "-print_format", "json", "-show_format", "-show_streams", m_input});
@@ -1049,6 +1050,25 @@ void Job::makeStrip() {
         emit previewChanged();
     });
     process->start("ffmpeg", stripArguments(m_info, m_input, stripCount(), 72, m_strip));
+}
+
+// The whole audio is read, but as a small mono stream, in the background:
+// a few seconds even for a long file, and nothing waits on it.
+void Job::scanWaveform() {
+    if (m_info.audio.isEmpty() || m_info.duration <= 0)
+        return;
+    auto *process = new QProcess(this);
+    auto scan = std::make_shared<WaveformScan>(qint64(m_info.duration * kWaveformRate), 600);
+    connect(process, &QProcess::readyReadStandardOutput, this, [process, scan] { scan->add(process->readAllStandardOutput()); });
+    connect(process, &QProcess::finished, this, [this, process, scan](int code, QProcess::ExitStatus status) {
+        process->deleteLater();
+        if (status != QProcess::NormalExit || code != 0)
+            return;
+        scan->add(process->readAllStandardOutput());
+        m_waveform = scan->peaks();
+        emit waveformChanged();
+    });
+    process->start("ffmpeg", waveformArguments(m_input));
 }
 
 void Job::checkPreview() {

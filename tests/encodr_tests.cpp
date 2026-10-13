@@ -2221,6 +2221,27 @@ private slots:
         QVERIFY2(uchar(middle[0]) < 60 && uchar(middle[1]) < 60 && uchar(middle[2]) < 60, "white inverted to black by the LUT");
     }
 
+    void waveformPeaks() {
+        // 4 slices over 8 samples; the pieces split a sample in half.
+        WaveformScan scan(8, 4);
+        QByteArray pcm;
+        for (qint16 v : {qint16(100), qint16(-400), qint16(0), qint16(0), qint16(-32768), qint16(25), qint16(1600), qint16(-1600)})
+            pcm.append(char(quint16(v) & 0xff)).append(char(quint16(v) >> 8));
+        scan.add(pcm.left(3));
+        scan.add(pcm.mid(3));
+        const QVariantList peaks = scan.peaks();
+        QCOMPARE(peaks.size(), 4);
+        QCOMPARE(peaks[1].toDouble(), 0.0);                                  // silence
+        QCOMPARE(peaks[2].toDouble(), 1.0);                                  // the loudest, -32768 included
+        QVERIFY(qAbs(peaks[0].toDouble() - std::sqrt(400.0 / 32767)) < 1e-9);    // the slice's loudest, either sign
+        QVERIFY(qAbs(peaks[3].toDouble() - std::sqrt(1600.0 / 32767)) < 1e-9);
+        // Samples past the stated length go to the last slice.
+        scan.add(pcm.mid(8, 2));    // -32768 again
+        QCOMPARE(scan.peaks()[3].toDouble(), 1.0);
+        QVERIFY(WaveformScan(10, 3).peaks() == QVariantList({0.0, 0.0, 0.0}));
+        QVERIFY(waveformArguments("/x/in.mov").join(' ').endsWith("-map 0:a:0 -vn -sn -dn -ac 1 -ar 4000 -f s16le -"));
+    }
+
     void fitsAFileSize() {
         MediaInfo info = parseProbe(kKiPro, "/x/in.mov");
         info.duration = 100;
@@ -2350,6 +2371,8 @@ private slots:
         job.probe();
         QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
         QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(job.previewSource()), 15000);   // poster frame
+        QTRY_COMPARE_WITH_TIMEOUT(job.waveform().size(), 600, 15000);
+        QVERIFY(job.waveform().first().toDouble() > 0.5);    // a steady tone: every slice near the loudest
         QVERIFY(job.info().splitMono());
         QCOMPARE(job.info().timecode, QString("01:00:00:00"));
 

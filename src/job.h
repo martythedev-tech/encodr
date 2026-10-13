@@ -102,6 +102,9 @@ class Job : public QObject {
     Q_PROPERTY(QString strip READ strip CONSTANT)
     Q_PROPERTY(int stripCount READ stripCount CONSTANT)
     Q_PROPERTY(bool hasStrip READ hasStrip NOTIFY previewChanged)
+    // The first audio track's loudness across the file: 0-1 per slice of the
+    // timeline, empty until it's been read (or when there's no audio).
+    Q_PROPERTY(QVariantList waveform READ waveform NOTIFY waveformChanged)
     // The whole-file check: black, freezes, silence, cuts.
     Q_PROPERTY(bool analysing READ analysing NOTIFY analysisChanged)
     Q_PROPERTY(bool analysed READ analysed NOTIFY analysisChanged)
@@ -221,6 +224,7 @@ public:
     QString strip() const { return m_strip; }
     int stripCount() const { return 16; }
     bool hasStrip() const { return m_hasStrip; }
+    QVariantList waveform() const { return m_waveform; }
     bool analysing() const { return m_analysis; }
     bool analysed() const { return m_analysed; }
     double analysisPercent() const { return m_analysisPercent; }
@@ -319,6 +323,7 @@ signals:
     void finished(bool ok);
     void previewChanged();
     void trimChanged();
+    void waveformChanged();
     void analysisChanged();
     void cropChanged();
     void padChanged();
@@ -335,6 +340,7 @@ private:
     void scanLevels(int track);
     void makePoster(double at);
     void makeStrip();
+    void scanWaveform();
     void makeOutputStill();
     // `pass`: which pass of a fit-to-size run (0 = the run's single pass).
     Command command(const QString &output, bool previews, int pass = 0) const;
@@ -390,6 +396,7 @@ private:
     bool m_barsChecked = false;
     void detectBars();
     bool m_hasStrip = false;
+    QVariantList m_waveform;
     double m_posterWanted = -1; // a frame asked for while another was being made
     bool m_posterBusy = false;
     QString m_outputStill;

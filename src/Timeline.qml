@@ -3,8 +3,9 @@ import QtQuick.Layouts
 import "Format.js" as Format
 
 // The source laid out in time: thumbnails across the whole clip with the
-// playhead (press or drag on them to scrub), and under them a thin lane for
-// the in and out points (press or drag there and the nearer one follows).
+// playhead (press or drag on them to scrub), the first audio track's
+// waveform, and under them a thin lane for the in and out points (press or
+// drag there and the nearer one follows).
 // The player owns playback; this only asks it to seek.
 ColumnLayout {
     id: bar
@@ -34,6 +35,36 @@ ColumnLayout {
     function markOut() { if (job) job.setTrim(job.trimIn, Math.max(position, inPoint + 0.1)); }
 
     spacing: 6
+
+    // The first audio track's loudness, drawn in the theme's own colour.
+    // (Its own scope: the peaks are handed in.)
+    component WaveCanvas: Canvas {
+        property var peaks: []
+        readonly property color ink: theme.dim
+        onPeaksChanged: requestPaint()
+        onInkChanged: requestPaint()
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        onPaint: {
+            var ctx = getContext("2d");
+            ctx.reset();
+            var n = peaks.length;
+            if (n === 0)
+                return;
+            ctx.fillStyle = ink;
+            // One bar a pixel: the loudest slice it covers, about the middle.
+            var columns = Math.max(1, Math.floor(width));
+            for (var x = 0; x < columns; x++) {
+                var a = Math.floor(x * n / columns);
+                var b = Math.max(a + 1, Math.floor((x + 1) * n / columns));
+                var peak = 0;
+                for (var i = a; i < b && i < n; i++)
+                    peak = Math.max(peak, peaks[i]);
+                var h = Math.max(1, Math.round(peak * height));
+                ctx.fillRect(x, (height - h) / 2, 1, h);
+            }
+        }
+    }
 
     RowLayout {
         Layout.fillWidth: true
@@ -95,6 +126,13 @@ ColumnLayout {
             radius: 3
             color: theme.raised
             clip: true
+            // Sound only: the waveform takes the strip's place.
+            WaveCanvas {
+                anchors.fill: parent
+                anchors.margins: 4
+                peaks: bar.job ? bar.job.waveform : []
+                visible: job !== null && !job.info.hasVideo && !bar.output
+            }
             Image {
                 anchors.fill: parent
                 visible: job !== null && job.hasStrip
@@ -144,6 +182,37 @@ ColumnLayout {
             y: -3
             width: 2
             height: parent.height + 3
+            color: "white"
+            visible: bar.duration > 0
+        }
+        MouseArea {
+            anchors.fill: parent
+            enabled: bar.duration > 0
+            cursorShape: Qt.PointingHandCursor
+            onPressed: function (mouse) { bar.scrubStarted(); bar.seek(track.timeAt(mouse.x)); }
+            onPositionChanged: function (mouse) { if (pressed) bar.seek(track.timeAt(mouse.x)); }
+            onReleased: bar.scrubFinished()
+            onCanceled: bar.scrubFinished()
+        }
+    }
+
+    // The first audio track's loudness. Not under the converted file: a
+    // trimmed copy has its own length, and this is the source's sound.
+    Item {
+        id: wave
+        Layout.fillWidth: true
+        Layout.topMargin: -2
+        implicitHeight: 20
+        visible: job !== null && job.info.hasVideo && job.waveform.length > 0 && !bar.output
+
+        WaveCanvas { anchors.fill: parent; peaks: bar.job ? bar.job.waveform : [] }
+        // Outside the in and out points: faded, as on the strip.
+        Rectangle { x: 0; width: track.xFor(bar.inPoint); height: parent.height; color: theme.surface; opacity: 0.7 }
+        Rectangle { x: track.xFor(bar.outPoint); width: parent.width - x; height: parent.height; color: theme.surface; opacity: 0.7 }
+        Rectangle {
+            x: track.xFor(bar.position) - 1
+            width: 2
+            height: parent.height
             color: "white"
             visible: bar.duration > 0
         }
