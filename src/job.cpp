@@ -63,7 +63,11 @@ Job::Job(int id, const QString &inputPath, QObject *parent)
 
 Job::~Job() {
     // ffmpeg, ffprobe, mediainfo and the level scans are all children of the job.
+    // Disconnected first: waiting for a killed one delivers its `finished`,
+    // and a handler run now would use a job half taken apart (and some start
+    // the next helper, which would outlive it).
     for (QProcess *p : findChildren<QProcess *>()) {
+        p->disconnect();
         if (p->state() != QProcess::NotRunning) {
             p->kill();
             p->waitForFinished(2000);
