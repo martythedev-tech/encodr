@@ -88,7 +88,7 @@ Job::~Job() {
         QFile::remove(m_subtitleLink + name);
     QFile::remove(m_subtitleLink + "-source." + QFileInfo(m_input).suffix().toLower());
     QFile::remove(m_subtitleLink + "-join.txt");
-    for (int i = 0; i < kScrubSheets; ++i)
+    for (int i = 0; i < kScrubMaxSheets; ++i)
         QFile::remove(m_scrubPath + QString::number(i) + ".jpg");
     removePassLog();
     QFile::remove(m_sheetHeader);
@@ -1095,7 +1095,8 @@ void Job::makeStrip() {
 // scrubbing has frames everywhere from the first, getting finer with each,
 // and the machine isn't flooded with decoders.
 void Job::makeScrubSheet(int index) {
-    if (index >= kScrubSheets)
+    const int sheets = scrubSheetsFor(m_info.duration);
+    if (index >= sheets)
         return;
     const QString jpeg = m_scrubPath + QString::number(index) + ".jpg";
     auto *process = new QProcess(this);
@@ -1107,7 +1108,7 @@ void Job::makeScrubSheet(int index) {
         emit previewChanged();
         makeScrubSheet(index + 1);
     });
-    process->start("ffmpeg", frameSheetArguments(m_info, m_input, index, kScrubSheets, kScrubPerSheet,
+    process->start("ffmpeg", frameSheetArguments(m_info, m_input, index, sheets, kScrubPerSheet,
                                                  scrubFrames(), 180, jpeg));
 }
 

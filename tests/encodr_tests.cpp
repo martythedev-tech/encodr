@@ -2375,6 +2375,10 @@ private slots:
         // Long-GOP: frames for scrubbing, all four sheets, each across the
         // whole file (sheet 1 holds frames 1, 5, 9… of 64).
         QTRY_COMPARE_WITH_TIMEOUT(job.scrubSheets(), 4, 60000);
+        QCOMPARE(job.scrubFrames(), 64);
+        QCOMPARE(Job::scrubSheetsFor(600), 4);       // 10 min: 64 frames
+        QCOMPARE(Job::scrubSheetsFor(1800), 12);     // 30 min: one per 10 s
+        QCOMPARE(Job::scrubSheetsFor(6400), 16);     // long: 256 at most
         QCOMPARE(QImage(job.scrubPath() + "1.jpg").width(), 16 * 320);
         const QStringList sheet1 = frameSheetArguments(job.info(), source, 1, 4, 16, 64, 180, "/c/s.jpg");
         QCOMPARE(sheet1.count("-ss"), 16);

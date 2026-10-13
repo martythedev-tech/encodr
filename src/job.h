@@ -8,6 +8,8 @@
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
+#include <algorithm>
+#include <cmath>
 #include <deque>
 
 #include "analysis.h"
@@ -106,13 +108,14 @@ class Job : public QObject {
     // timeline, empty until it's been read (or when there's no audio).
     Q_PROPERTY(QVariantList waveform READ waveform NOTIFY waveformChanged)
     // Frames for scrubbing a long-GOP source without decoding: scrubFrames
-    // spread evenly across the file, made as kScrubSheets JPEGs at
-    // scrubPath + sheet + ".jpg", ready one after another (scrubSheets so
-    // far). Sheet k holds frames k, k + kScrubSheets, k + 2 × kScrubSheets…
-    // side by side, so each one spans the whole file. None for intra-only.
+    // spread evenly across the file (one per 10 s, 64 to 256), made as
+    // JPEG sheets of scrubPerSheet at scrubPath + sheet + ".jpg", ready one
+    // after another (scrubSheets so far). Sheet k of n holds frames k,
+    // k + n, k + 2n… side by side, so each one spans the whole file and
+    // scrubbing gets finer as they arrive. None for intra-only sources.
     Q_PROPERTY(int scrubSheets READ scrubSheets NOTIFY previewChanged)
     Q_PROPERTY(int scrubPerSheet READ scrubPerSheet CONSTANT)
-    Q_PROPERTY(int scrubFrames READ scrubFrames CONSTANT)
+    Q_PROPERTY(int scrubFrames READ scrubFrames NOTIFY infoChanged)
     Q_PROPERTY(QString scrubPath READ scrubPath CONSTANT)
     Q_PROPERTY(QString sheetState READ sheetState NOTIFY sheetChanged)
     // The whole-file check: black, freezes, silence, cuts.
@@ -235,11 +238,16 @@ public:
     int stripCount() const { return 16; }
     bool hasStrip() const { return m_hasStrip; }
     QVariantList waveform() const { return m_waveform; }
-    static constexpr int kScrubSheets = 4;
     static constexpr int kScrubPerSheet = 16;
+    static constexpr int kScrubMaxSheets = 16;
+    // 4 sheets (64 frames) up to about 10 minutes, then one more per 160 s
+    // of length up to 16 (all loaded while scrubbing: about 60 MB at most).
+    static int scrubSheetsFor(double seconds) {
+        return std::clamp(int(std::ceil(seconds / 10 / kScrubPerSheet)), 4, kScrubMaxSheets);
+    }
     int scrubSheets() const { return m_scrubSheets; }
     int scrubPerSheet() const { return kScrubPerSheet; }
-    int scrubFrames() const { return kScrubSheets * kScrubPerSheet; }
+    int scrubFrames() const { return scrubSheetsFor(m_info.duration) * kScrubPerSheet; }
     QString scrubPath() const { return m_scrubPath; }
     bool analysing() const { return m_analysis; }
     bool analysed() const { return m_analysed; }

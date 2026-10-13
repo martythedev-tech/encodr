@@ -46,7 +46,8 @@ below; and the source details beside live stats. The layout is remembered.
   the finished file afterwards. Under it, thumbnails across the whole clip
   with a playhead to scrub (on H.264, HEVC or VP9, where a seek means
   decoding from a keyframe seconds back, the drag shows frames made in
-  advance and decodes the exact one when you let go), and the sound's
+  advance (one per 10 s, up to 256) and decodes the exact one when you
+  let go), and the sound's
   waveform, so speech, music and
   silence show where to trim (for a sound file, the waveform is the strip).
   Keys: P plays, arrows jump a second, comma and period step a frame.
