@@ -36,7 +36,7 @@ Job::Job(int id, const QString &inputPath, QObject *parent)
     m_outputFolder = QFileInfo(inputPath).absolutePath();
     // Preview frames live in the cache, named per process so two Encodr
     // windows never draw over each other's.
-    const QString cache = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + "/encodr";
+    const QString cache = cacheDir();
     QDir().mkpath(cache);
     const QString stem = QString("%1/preview-%2-%3").arg(cache).arg(QCoreApplication::applicationPid()).arg(id);
     m_previewOut = stem + "-out.jpg";
@@ -62,6 +62,22 @@ Job::Job(int id, const QString &inputPath, QObject *parent)
     m_passLog = stem + "-pass";
     m_sheetHeader = stem + "-sheet.txt";
     m_scrubPath = stem + "-scrub-";
+}
+
+QString Job::cacheDir() {
+    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + "/encodr";
+}
+
+int Job::removeStaleFiles(const QString &dir, const QString &proc) {
+    static const QRegularExpression name("^preview-(\\d+)-");
+    QDir cache(dir);
+    int removed = 0;
+    for (const QString &file : cache.entryList(QDir::Files)) {
+        const QRegularExpressionMatch m = name.match(file);
+        if (m.hasMatch() && !QFileInfo::exists(proc + "/" + m.captured(1)) && cache.remove(file))
+            ++removed;
+    }
+    return removed;
 }
 
 Job::~Job() {

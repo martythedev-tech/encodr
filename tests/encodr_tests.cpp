@@ -2225,6 +2225,17 @@ private slots:
         QVERIFY2(uchar(middle[0]) < 60 && uchar(middle[1]) < 60 && uchar(middle[2]) < 60, "white inverted to black by the LUT");
     }
 
+    void removesStaleCacheFiles() {
+        QTemporaryDir cache, proc;
+        QDir(proc.path()).mkpath("4242");    // a process that's still running
+        for (const QString &f : {"preview-4242-1-strip.jpg", "preview-999999-1-strip.jpg", "preview-999999-2-scrub-3.jpg",
+                                 "qtpipelinecache-arm64", "preview-x-1-out.jpg"})
+            writeFile(cache.filePath(f), "x");
+        QCOMPARE(Job::removeStaleFiles(cache.path(), proc.path()), 2);
+        QCOMPARE(QDir(cache.path()).entryList(QDir::Files),
+                 QStringList({"preview-4242-1-strip.jpg", "preview-x-1-out.jpg", "qtpipelinecache-arm64"}));
+    }
+
     void waveformPeaks() {
         // 4 slices over 8 samples; the pieces split a sample in half.
         WaveformScan scan(8, 4);

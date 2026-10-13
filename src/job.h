@@ -158,6 +158,13 @@ public:
     Job(int id, const QString &inputPath, QObject *parent = nullptr);
     ~Job() override;
 
+    // Where preview frames and other per-run files live.
+    static QString cacheDir();
+    // Removes files a job left in `dir` when Encodr didn't get to clean up
+    // (killed, logged out): preview-<pid>-… whose process `proc` no longer
+    // lists. Another Encodr window's files are left alone. How many went.
+    static int removeStaleFiles(const QString &dir, const QString &proc = "/proc");
+
     int id() const { return m_id; }
     QString inputPath() const { return m_input; }
     QString fileName() const;

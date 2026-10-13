@@ -21,6 +21,7 @@
 #include "browser.h"
 #include "naming.h"
 #include "hardware.h"
+#include "job.h"
 #include "portalfilepicker.h"
 #include "theme.h"
 
@@ -72,6 +73,10 @@ int main(int argc, char *argv[]) {
     if (!qEnvironmentVariableIsSet("QT_QUICK_CONTROLS_MATERIAL_VARIANT"))
         qputenv("QT_QUICK_CONTROLS_MATERIAL_VARIANT", "Dense");
     QQuickStyle::setStyle("Material");
+
+    // Preview frames from runs that ended without cleaning up (killed, or
+    // the session ended): they'd only pile up.
+    Job::removeStaleFiles(Job::cacheDir());
 
     Theme theme;
     PortalFilePicker picker;
