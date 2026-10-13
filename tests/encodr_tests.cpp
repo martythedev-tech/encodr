@@ -1017,7 +1017,8 @@ private slots:
                 QVERIFY(finished.wait(90000));
                 QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
                 QVERIFY2(job.engine() == e.id, qPrintable(job.notes().join(" | ")));    // no fallback
-                QVERIFY(std::any_of(job.notes().cbegin(), job.notes().cend(),
+                const QStringList notes = job.notes();    // one list: begin and end must come from the same one
+                QVERIFY(std::any_of(notes.cbegin(), notes.cend(),
                                     [](const QString &note) { return note.startsWith("Encoded on the GPU"); }));
                 QProcess probe;
                 probe.start("ffprobe", {"-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height",
@@ -1989,9 +1990,12 @@ private slots:
         Preset copy = builtinPresets()[1];
         copy.video = "copy";
         QVERIFY(outputStillArguments(copy, info, "/x/in.mov", 10.0, "/c/still.jpg").isEmpty());
-        const Preset wav = *std::find_if(builtinPresets().cbegin(), builtinPresets().cend(),
-                                         [](const Preset &x) { return x.audioOnly(); });
-        QVERIFY(outputStillArguments(wav, info, "/x/in.mov", 10.0, "/c/still.jpg").isEmpty());
+        // One list: begin and end from two calls would be two lists, and the
+        // search would run off the end of the first (the intermittent crash).
+        const QList<Preset> all = builtinPresets();
+        const auto wav = std::find_if(all.cbegin(), all.cend(), [](const Preset &x) { return x.audioOnly(); });
+        QVERIFY(wav != all.cend());
+        QVERIFY(outputStillArguments(*wav, info, "/x/in.mov", 10.0, "/c/still.jpg").isEmpty());
     }
 
     void outputStillForReal() {
