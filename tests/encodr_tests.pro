@@ -1,5 +1,5 @@
 QT += core gui quick quickcontrols2 testlib dbus
-CONFIG += c++17 testcase
+CONFIG += c++17 testcase force_debug_info    # so a crash under gdb (CI) has a readable backtrace
 TARGET = encodr_tests
 TEMPLATE = app
 

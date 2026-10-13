@@ -137,7 +137,11 @@ jobs:
           echo "$RUNNER_TEMP/$FFMPEG/bin" >> "$GITHUB_PATH"
 
       - name: Test against this Qt
-        run: bin/test
+        # Under gdb: an intermittent crash (twice right after
+        # detectsBarsForReal) then leaves a backtrace in the log.
+        run: |
+          sudo apt-get install -y -qq gdb > /dev/null
+          TEST_WRAPPER="$PWD/tests/under-gdb" bin/test
 
       - name: Build
         run: bin/build

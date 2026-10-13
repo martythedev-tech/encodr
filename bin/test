@@ -7,4 +7,5 @@ cd "$ROOT/build/tests"
 
 "${QMAKE:-qmake6}" "$ROOT/tests/encodr_tests.pro"
 make -j"$(nproc)"
-QT_QPA_PLATFORM=offscreen ./encodr_tests
+# TEST_WRAPPER runs the suite through something, e.g. tests/under-gdb in CI.
+QT_QPA_PLATFORM=offscreen ${TEST_WRAPPER:+"$TEST_WRAPPER"} ./encodr_tests

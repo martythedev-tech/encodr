@@ -1,0 +1,10 @@
+#!/bin/sh
+# Runs a program under gdb and prints every thread's backtrace if it crashes;
+# the exit status is the program's own. For CI, where a crash is otherwise
+# just "Received signal 11" with an address.
+exec gdb -q -batch -return-child-result \
+    -ex "set print thread-events off" \
+    -ex "handle SIGPIPE nostop noprint pass" \
+    -ex run \
+    -ex "thread apply all bt 30" \
+    --args "$@"
