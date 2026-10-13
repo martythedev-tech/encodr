@@ -105,6 +105,7 @@ class Job : public QObject {
     // The first audio track's loudness across the file: 0-1 per slice of the
     // timeline, empty until it's been read (or when there's no audio).
     Q_PROPERTY(QVariantList waveform READ waveform NOTIFY waveformChanged)
+    Q_PROPERTY(QString sheetState READ sheetState NOTIFY sheetChanged)
     // The whole-file check: black, freezes, silence, cuts.
     Q_PROPERTY(bool analysing READ analysing NOTIFY analysisChanged)
     Q_PROPERTY(bool analysed READ analysed NOTIFY analysisChanged)
@@ -235,6 +236,10 @@ public:
     // Writes the cuts as an EDL beside the output; returns its path, or
     // empty if it couldn't.
     Q_INVOKABLE QString saveEdl();
+    // A contact sheet beside the output, in the background: sheetState is
+    // "" before, "making", "failed", or the saved JPEG's path.
+    Q_INVOKABLE void makeContactSheet();
+    QString sheetState() const { return m_sheetState; }
 
     QString cropMode() const { return m_cropMode; }
     int cropLeft() const { return m_crop.left(); }
@@ -324,6 +329,7 @@ signals:
     void previewChanged();
     void trimChanged();
     void waveformChanged();
+    void sheetChanged();
     void analysisChanged();
     void cropChanged();
     void padChanged();
@@ -397,6 +403,8 @@ private:
     void detectBars();
     bool m_hasStrip = false;
     QVariantList m_waveform;
+    QString m_sheetState;
+    QString m_sheetHeader;
     double m_posterWanted = -1; // a frame asked for while another was being made
     bool m_posterBusy = false;
     QString m_outputStill;

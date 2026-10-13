@@ -60,6 +60,7 @@ Job::Job(int id, const QString &inputPath, QObject *parent)
     connect(this, &Job::subtitlesChanged, this, redraw);
     m_subtitleLink = stem + "-subtitles";
     m_passLog = stem + "-pass";
+    m_sheetHeader = stem + "-sheet.txt";
 }
 
 Job::~Job() {
@@ -87,6 +88,7 @@ Job::~Job() {
     QFile::remove(m_subtitleLink + "-source." + QFileInfo(m_input).suffix().toLower());
     QFile::remove(m_subtitleLink + "-join.txt");
     removePassLog();
+    QFile::remove(m_sheetHeader);
     QFile::remove(m_finishedStill);
     for (const QString &name : {"-quality.log", "-quality.json", "-reference.y4m", "-output.y4m"})
         QFile::remove(m_subtitleLink + name);
@@ -319,6 +321,38 @@ QString Job::saveEdl() {
         return {};
     f.write(edlFromCuts(m_moments, m_info, base).toUtf8());
     return path;
+}
+
+void Job::makeContactSheet() {
+    if (!m_info.hasVideo || m_info.duration <= 0 || m_sheetState == "making")
+        return;
+    const QString base = QFileInfo(m_input).completeBaseName();
+    QFile header(m_sheetHeader);
+    if (!QDir().mkpath(m_outputFolder) || !header.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        m_sheetState = "failed";
+        emit sheetChanged();
+        return;
+    }
+    const int s = int(std::ceil(m_info.duration));
+    QStringList details{s >= 3600 ? QString("%1:%2:%3").arg(s / 3600).arg(s / 60 % 60, 2, 10, QChar('0')).arg(s % 60, 2, 10, QChar('0'))
+                                  : QString("%1:%2").arg(s / 60).arg(s % 60, 2, 10, QChar('0')),
+                        m_info.summary(), QString("%1 MB").arg(m_info.size / 1e6, 0, 'f', 1)};
+    if (!m_info.timecode.isEmpty())
+        details << "starts " + m_info.timecode;
+    header.write((QFileInfo(m_input).fileName() + "\n" + details.join("  ·  ")).toUtf8());
+    header.close();
+
+    const QString path = uniquePath(QDir(m_outputFolder).filePath(base + "_contact_sheet.jpg"));
+    m_sheetState = "making";
+    emit sheetChanged();
+    auto *process = new QProcess(this);
+    connect(process, &QProcess::finished, this, [this, process, path](int code, QProcess::ExitStatus status) {
+        process->deleteLater();
+        QFile::remove(m_sheetHeader);
+        m_sheetState = status == QProcess::NormalExit && code == 0 && QFileInfo::exists(path) ? path : QString("failed");
+        emit sheetChanged();
+    });
+    process->start("ffmpeg", contactSheetArguments(m_info, m_input, m_sheetHeader, path));
 }
 
 QMargins Job::centredCrop(int width, int height, int across, int down) {

@@ -2350,6 +2350,42 @@ private slots:
         QVERIFY(log.dir().entryList({log.fileName() + "*"}, QDir::Files).isEmpty());
     }
 
+    void contactSheetForReal() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        const QString source = dir.filePath("it's: 100% \"odd\".mov");    // a name drawtext would choke on
+        QProcess make;
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25:duration=8",
+                              "-c:v", "libx264", "-preset", "ultrafast", "-timecode", "10:00:00:00", source});
+        QVERIFY(make.waitForFinished(60000));
+        QCOMPARE(make.exitCode(), 0);
+        Job job(1, source);
+        job.setOutputFolder(dir.filePath("out"));
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        const QStringList args = contactSheetArguments(job.info(), source, "/c/header.txt", "/c/sheet.jpg");
+        QCOMPARE(args.count("-ss"), 20);
+        QVERIFY2(args.join(' ').contains("text='10\\:00\\:00\\:05'"), qPrintable(args.join(' ')));    // 0.2 s in: frame 5
+
+        QSignalSpy changed(&job, &Job::sheetChanged);
+        job.makeContactSheet();
+        QCOMPARE(job.sheetState(), QString("making"));
+        QTRY_VERIFY_WITH_TIMEOUT(job.sheetState() != "making", 60000);
+        const QString sheet = job.sheetState();
+        QCOMPARE(sheet, dir.filePath("out/it's: 100% \"odd\"_contact_sheet.jpg"));
+        const QImage image(sheet);
+        QCOMPARE(image.width(), 5 * (384 + 4));
+        QCOMPARE(image.height(), 4 * (216 + 4) + 64);
+        QVERIFY(!QFileInfo::exists(QString(job.previewOut()).replace("-out.jpg", "-sheet.txt")));
+        // Upright video: more, narrower columns.
+        MediaInfo upright = job.info();
+        upright.width = 1080;
+        upright.height = 1920;
+        QCOMPARE(contactSheetLayout(upright).columns, 8);
+        QCOMPARE(contactSheetLayout(upright).tileWidth, 240);
+    }
+
     void convertsARealClip() {
         if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
             QSKIP("ffmpeg is not installed");

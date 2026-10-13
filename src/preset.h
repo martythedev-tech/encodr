@@ -158,6 +158,18 @@ QStringList loudnessArguments(const Preset &preset, const MediaInfo &info, const
 // from fast seeks (nothing decoded beyond the frames themselves).
 QStringList stripArguments(const MediaInfo &info, const QString &input, int count, int height, const QString &jpeg);
 
+// A contact sheet: frames evenly across the file in a grid, each labelled
+// with its time (the source timecode when there is one), under a header
+// read from the text file `header` (the name and details). One JPEG.
+struct ContactSheet {
+    int columns = 5;
+    int rows = 4;
+    int tileWidth = 384;
+};
+ContactSheet contactSheetLayout(const MediaInfo &info);
+QStringList contactSheetArguments(const MediaInfo &info, const QString &input, const QString &header,
+                                  const QString &jpeg);
+
 // Fit to size: the picture's bitrate (kbps) that brings a `length`-second
 // file to the preset's size, after its audio and a little for the
 // container; 0 when the preset doesn't fit a size. Can be negative: the

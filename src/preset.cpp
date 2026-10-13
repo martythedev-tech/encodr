@@ -472,6 +472,62 @@ QStringList stripArguments(const MediaInfo &info, const QString &input, int coun
     return a;
 }
 
+ContactSheet contactSheetLayout(const MediaInfo &info) {
+    // Upright video gets more, narrower columns, so the sheet stays wide.
+    if (info.height > info.width)
+        return {8, 3, 240};
+    return {5, 4, 384};
+}
+
+QStringList contactSheetArguments(const MediaInfo &info, const QString &input, const QString &header,
+                                  const QString &jpeg) {
+    const ContactSheet sheet = contactSheetLayout(info);
+    const int count = sheet.columns * sheet.rows;
+    QStringList a{"-nostdin", "-hide_banner", "-y", "-loglevel", "error"};
+    QStringList graph, rows, row;
+    const double last = std::max(0.0, info.duration - 1);
+    const int base = std::max(1, int(std::lround(info.fps)));
+    for (int i = 0; i < count; ++i) {
+        const double at = std::min(last, info.duration * (i + 0.5) / count);
+        a << colourFixArguments(info) << "-ss" << QString::number(at, 'f', 2) << "-i" << input;
+        // The source's own timecode where it has one, so it can be quoted;
+        // otherwise the time into the file.
+        QString label;
+        if (!info.timecode.isEmpty() && info.fps > 0) {
+            label = offsetTimecode(info.timecode, qint64(std::llround(at * info.fps)), base);
+        } else if (info.duration < 120) {
+            // Frames seconds apart on a short file: tenths keep them apart.
+            const int tenths = int(at * 10);
+            label = QString("%1:%2.%3").arg(tenths / 600).arg(tenths / 10 % 60, 2, 10, QChar('0')).arg(tenths % 10);
+        } else {
+            const int s = int(at);
+            label = s >= 3600 ? QString("%1:%2:%3").arg(s / 3600).arg(s / 60 % 60, 2, 10, QChar('0')).arg(s % 60, 2, 10, QChar('0'))
+                              : QString("%1:%2").arg(s / 60).arg(s % 60, 2, 10, QChar('0'));
+        }
+        label.replace(":", "\\:").replace(";", "\\;");
+        graph << QString("[%1:v:0]scale=%2:-2:out_range=full,format=yuvj420p,setsar=1,"
+                         "drawtext=font=monospace:text='%3':fontsize=15:fontcolor=white:box=1:boxcolor=black@0.6"
+                         ":boxborderw=4:x=6:y=h-th-6,pad=iw+4:ih+4:2:2:color=0x16161a[t%1]")    // a hairline between frames
+                     .arg(i).arg(sheet.tileWidth).arg(label);
+        row << QString("[t%1]").arg(i);
+        if (row.size() == sheet.columns) {
+            graph << row.join("") + QString("hstack=inputs=%1[r%2]").arg(sheet.columns).arg(rows.size());
+            rows << QString("[r%1]").arg(rows.size());
+            row.clear();
+        }
+    }
+    // The file's name and details across the top, from a text file: a name
+    // can hold anything, and drawtext's escaping can't be trusted with it.
+    QString headerPath = header;
+    headerPath.replace(":", "\\:");
+    graph << rows.join("") + QString("vstack=inputs=%1,pad=iw:ih+64:0:64:color=0x16161a,"
+                                     "drawtext=font=sans:textfile='%2':expansion=none:fontsize=18:line_spacing=8"
+                                     ":fontcolor=white:x=14:y=12[s]").arg(rows.size()).arg(headerPath);
+    a << "-filter_complex" << graph.join(';') << "-map" << "[s]" << "-frames:v" << "1" << "-q:v" << "3"
+      << "-update" << "1" << jpeg;
+    return a;
+}
+
 QStringList posterArguments(const MediaInfo &info, const QString &input, double at, const QString &jpeg, int height) {
     QStringList a{"-nostdin", "-hide_banner", "-y", "-loglevel", "error"};
     a << colourFixArguments(info);

@@ -105,6 +105,9 @@ below; and the source details beside live stats. The layout is remembered.
 - **Check the whole file.** One pass finds black frames, frozen pictures,
   silence and the cuts between shots, marks them on the timeline (click one
   to jump there), and saves the cuts as an EDL for Resolve, Premiere or Avid.
+- **Contact sheets.** Twenty frames from across the file in one JPEG, each
+  labelled with its time (or the source timecode, so it can be quoted), under
+  the file's name and details. A few seconds even for a long file.
 - **A live preview while it converts.** The frame being worked on right now,
   as the output will look (with burned-in timecode, watermark, scaling) or
   as the source, or both side by side.

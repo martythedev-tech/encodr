@@ -404,6 +404,32 @@ ScrollView {
             }
         }
 
+        // Frames across the file in one picture, to send round or file away.
+        Section {
+            title: "Contact sheet"
+            visible: info.valid === true && info.hasVideo === true
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                UiButton {
+                    text: job && job.sheetState === "making" ? "Making…" : "Save a contact sheet"
+                    enabled: job !== null && job.sheetState !== "making"
+                    onClicked: job.makeContactSheet()
+                }
+            }
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                readonly property string state: job ? job.sheetState : ""
+                text: state === "" || state === "making"
+                      ? "Frames from across the file with their " + (info.timecode ? "timecodes" : "times") + ", as one JPEG beside the output."
+                      : state === "failed" ? "Couldn't make the contact sheet in the output folder."
+                      : "Saved " + Format.folder(state)
+                color: state === "failed" ? theme.bad : theme.dim
+                font.pixelSize: 11
+            }
+        }
+
         Section {
             title: "File"
             visible: info.valid === true
