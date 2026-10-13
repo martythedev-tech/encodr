@@ -52,6 +52,7 @@ struct Preset {
     // "vaapi". The job resolves "auto" before building the command.
     QString hardware = "auto";
     QString hardwareDevice;        // the VA-API render node; set per run, not saved
+    QString hardwareVendor;        // that node's maker ("intel", "amd"…); set per run, not saved
     // Pixels cropped off each edge of the source; set per run from the job
     // (crop belongs to a file, not a preset), not saved.
     int cropLeft = 0, cropTop = 0, cropRight = 0, cropBottom = 0;

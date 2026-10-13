@@ -59,6 +59,9 @@ public:
     // What a failed test encode means for the user, or empty when it's just
     // a GPU that can't do this (ffmpeg's error output).
     static QString explainFailure(const QString &id, const QByteArray &errors);
+    // Who made the GPU behind a render node ("intel", "amd", "nvidia"), or
+    // "" when it can't be told; `driSys` as for the constructor.
+    static QString vendorOf(const QString &device, const QString &driSys = {});
 
 signals:
     void changed();

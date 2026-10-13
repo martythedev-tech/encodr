@@ -138,8 +138,11 @@ below; and the source details beside live stats. The layout is remembered.
   Output still and the whole-file check see only that one. Trim and subtitle
   burn-in are for single files.
 - **GPU encoding** can make H.264 files up to a quarter larger than the
-  CPU's at the same quality, and is still marked experimental. Quick Sync needs an Intel GPU
-  from 2020 or later (older ones use VA-API instead).
+  CPU's at the same quality, and is still marked experimental. Where a
+  preset caps the bitrate (review and share copies), the GPU keeps to the
+  cap and the file is the CPU's size, at slightly lower quality; AMD's
+  VA-API can't do that, so there the cap is left out. Quick Sync needs an
+  Intel GPU from 2020 or later (older ones use VA-API instead).
 
 ## Shortcuts
 

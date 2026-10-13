@@ -1,4 +1,5 @@
 #include "job.h"
+#include "hardware.h"
 #include "naming.h"
 #include "quality.h"
 
@@ -137,6 +138,8 @@ Preset Job::runPreset() const {
     if (p.usesVideoEncoder()) {
         p.hardware = m_engine;
         p.hardwareDevice = m_engineDevice;
+        if (m_engine == "vaapi")
+            p.hardwareVendor = Hardware::vendorOf(m_engineDevice);
     }
     if (m_subtitleBurn.startsWith("track:")) {
         const int track = m_subtitleBurn.mid(6).toInt();

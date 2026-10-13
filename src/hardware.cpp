@@ -2,6 +2,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QTimer>
@@ -25,6 +26,14 @@ QString vendorName(const QString &vendor) {
         return "NVIDIA";
     return "GPU";
 }
+}
+
+QString Hardware::vendorOf(const QString &device, const QString &driSys) {
+    if (device.isEmpty())
+        return {};
+    const QString root = driSys.isEmpty() ? QString("/sys/class/drm") : driSys;
+    const QString name = vendorName(readFile(QString("%1/%2/device/vendor").arg(root, QFileInfo(device).fileName())));
+    return name == "GPU" ? QString() : name.toLower();
 }
 
 Hardware::Hardware(const QString &driSys, const QString &devDir, QObject *parent)

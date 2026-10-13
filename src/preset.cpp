@@ -1105,20 +1105,34 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
             // and HEVC 10%, both slightly better. VA-API's constant QP at
             // qp = crf was 1.75-2.8x the size; these offsets match on Intel
             // Iris Xe (H.264 ~25% larger, HEVC the same size).
+            // Constant QP can't keep under a cap: on Intel a capped preset
+            // came out 1.6x the share copy's size, peaking at 3x the cap.
+            // Intel's driver takes QVBR (the same quality, kept under the
+            // cap: x264's size there); AMD's doesn't, so AMD stays on CQP.
+            // -quality 1 (the driver's slowest, best mode) makes Intel
+            // H.264 7% smaller for 12% more time; HEVC gains nothing.
+            const bool intelVaapi = p.hardware == "vaapi" && p.hardwareVendor == "intel";
+            const bool qvbr = intelVaapi && p.maxrateKbps > 0;
+            const QString vaapiQ = QString::number(p.crf + (hevc ? 4 : 6));
             if (p.hardware == "nvenc")
                 a << "-preset" << nvencPreset(p.speed) << "-tune" << "hq" << "-rc" << "vbr"
                   << "-cq" << QString::number(std::min(51, p.crf + 6)) << "-b:v" << "0";
             else if (p.hardware == "qsv")
                 a << "-preset" << qsvPreset(p.speed) << "-global_quality" << QString::number(p.crf);
+            else if (qvbr)
+                a << "-rc_mode" << "QVBR" << "-global_quality" << vaapiQ;
             else
-                a << "-rc_mode" << "CQP" << "-qp" << QString::number(p.crf + (hevc ? 4 : 6));
+                a << "-rc_mode" << "CQP" << "-qp" << vaapiQ;
+            if (intelVaapi && !hevc)
+                a << "-quality" << "1";
             a << "-profile:v" << (hevc ? "main10" : "high");
             // VA-API in constant-QP mode has no rate cap to honour. Quick Sync
             // given a cap but no bitrate drops global_quality for a fixed QP
             // of its own and overshoots the cap; a target just under the cap
             // selects QVBR, which keeps both (a target equal to it means CBR).
-            if (p.maxrateKbps > 0 && p.hardware != "vaapi") {
-                if (p.hardware == "qsv")
+            // Intel's VA-API QVBR wants the same target.
+            if (p.maxrateKbps > 0 && (p.hardware != "vaapi" || qvbr)) {
+                if (p.hardware == "qsv" || qvbr)
                     a << "-b:v" << QString("%1k").arg(p.maxrateKbps * 15 / 16);
                 a << "-maxrate" << QString("%1k").arg(p.maxrateKbps) << "-bufsize" << QString("%1k").arg(p.maxrateKbps * 2);
             }

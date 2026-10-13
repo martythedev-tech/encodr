@@ -821,9 +821,26 @@ private slots:
         joined = cmd.arguments.join(' ');
         QVERIFY2(joined.indexOf("-vaapi_device /dev/dri/renderD129") < joined.indexOf("-i /x/in.mov"), qPrintable(joined));
         QVERIFY(joined.contains("format=nv12,split=2[vsw][pv];[vsw]hwupload[v]"));
-        QVERIFY(joined.contains("-c:v h264_vaapi -rc_mode CQP -qp 24"));    // crf 18 + 6
+        QVERIFY(joined.contains("-c:v h264_vaapi -rc_mode CQP -qp 24 -profile:v high"));    // crf 18 + 6
         QVERIFY(!joined.contains("-maxrate"));    // no rate cap in constant-QP mode
         QVERIFY(cmd.notes.contains("Encoded on the GPU (VA-API)"));
+
+        // Intel's driver keeps a cap with QVBR, at the same quality number,
+        // and gets its best H.264 mode; uncapped it stays on constant QP.
+        p.hardwareVendor = "intel";
+        joined = buildCommand(p, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains("-c:v h264_vaapi -rc_mode QVBR -global_quality 24 -quality 1 -profile:v high"), qPrintable(joined));
+        QVERIFY2(joined.contains("-b:v 15000k -maxrate 16000k -bufsize 32000k"), qPrintable(joined));
+        p.maxrateKbps = 0;
+        joined = buildCommand(p, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains("-c:v h264_vaapi -rc_mode CQP -qp 24 -quality 1 -profile:v high"), qPrintable(joined));
+        QVERIFY(!joined.contains("-maxrate"));
+        // AMD's driver refuses QVBR: a cap is left out rather than failing.
+        p.maxrateKbps = 16000;
+        p.hardwareVendor = "amd";
+        joined = buildCommand(p, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains("-c:v h264_vaapi -rc_mode CQP -qp 24 -profile:v high"), qPrintable(joined));
+        QVERIFY(!joined.contains("-maxrate") && !joined.contains("-quality"));
 
         // HEVC keeps 10-bit and the Apple-friendly tag on the GPU too.
         Preset h = builtinPresets()[3];
@@ -836,6 +853,13 @@ private slots:
         h.hardware = "vaapi";
         joined = buildCommand(h, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
         QVERIFY2(joined.contains("-c:v hevc_vaapi -rc_mode CQP -qp 26 -profile:v main10"), qPrintable(joined));    // crf 22 + 4
+        h.hardwareVendor = "intel";    // no -quality for HEVC: it gained nothing
+        joined = buildCommand(h, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains("-c:v hevc_vaapi -rc_mode CQP -qp 26 -profile:v main10"), qPrintable(joined));
+        h.maxrateKbps = 8000;
+        joined = buildCommand(h, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
+        QVERIFY2(joined.contains("-c:v hevc_vaapi -rc_mode QVBR -global_quality 26 -profile:v main10 -b:v 7500k -maxrate 8000k"), qPrintable(joined));
+        h.maxrateKbps = 0;
         h.hardware = "qsv";    // no cap: plain constant quality (ICQ), no bitrate
         joined = buildCommand(h, info, "/x/in.mov", "/y/out.mp4").arguments.join(' ');
         QVERIFY2(joined.contains("-c:v hevc_qsv -preset medium -global_quality 22") && !joined.contains("-b:v"), qPrintable(joined));
@@ -844,6 +868,18 @@ private slots:
         Preset prores = presetNamed("prores-proxy");
         prores.hardware = "nvenc";
         QVERIFY(buildCommand(prores, info, "/x/in.mov", "/y/out.mov").arguments.contains("prores_ks"));
+    }
+
+    void vaapiVendorFromRenderNode() {
+        QTemporaryDir sys;
+        QDir(sys.path()).mkpath("renderD128/device");
+        QDir(sys.path()).mkpath("renderD129/device");
+        writeFile(sys.filePath("renderD128/device/vendor"), "0x8086\n");
+        writeFile(sys.filePath("renderD129/device/vendor"), "0x1002\n");
+        QCOMPARE(Hardware::vendorOf("/dev/dri/renderD128", sys.path()), QString("intel"));
+        QCOMPARE(Hardware::vendorOf("/dev/dri/renderD129", sys.path()), QString("amd"));
+        QVERIFY(Hardware::vendorOf("/dev/dri/renderD130", sys.path()).isEmpty());
+        QVERIFY(Hardware::vendorOf({}, sys.path()).isEmpty());
     }
 
     void gpuDetectionParsesFfmpeg() {
