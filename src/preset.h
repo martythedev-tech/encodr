@@ -157,6 +157,11 @@ QStringList loudnessArguments(const Preset &preset, const MediaInfo &info, const
 // A strip of `count` thumbnails across the source, side by side in one JPEG,
 // from fast seeks (nothing decoded beyond the frames themselves).
 QStringList stripArguments(const MediaInfo &info, const QString &input, int count, int height, const QString &jpeg);
+// `count` of `total` frames spread evenly across the source (frame `first`,
+// then every `step`th), side by side in one JPEG, as for the strip (which
+// is all of them).
+QStringList frameSheetArguments(const MediaInfo &info, const QString &input, int first, int step, int count, int total,
+                                int height, const QString &jpeg);
 
 // A contact sheet: frames evenly across the file in a grid, each labelled
 // with its time (the source timecode when there is one), under a header

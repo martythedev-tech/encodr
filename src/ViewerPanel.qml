@@ -49,7 +49,8 @@ Dock {
     }
     onComparingChanged: requestCompare()
     readonly property string playPath: !playerMode ? "" : playsOutput ? job.outputPath : job.inputPath
-    readonly property real position: player.position / 1000
+    // While a drag shows ready-made frames, the playhead is where the mouse is.
+    readonly property real position: sheetScrub ? scrubTime : player.position / 1000
     readonly property bool playing: player.playbackState === MediaPlayer.PlayingState
     readonly property real frameStep: job && job.info.fps > 0 ? 1 / job.info.fps : 0.04
     // The player before a finished run, with something to process.
@@ -61,16 +62,39 @@ Dock {
             job.showOutputAt(position);
     }
     onShowsStillChanged: requestStill()
-    onPositionChanged: if (!playing) { requestStill(); requestCompare(); }
+    onPositionChanged: if (!playing && !sheetScrub) { requestStill(); requestCompare(); }
 
     function seek(seconds) {
         player.position = Math.max(0, Math.round(seconds * 1000));
+    }
+    // Long-GOP sources (H.264, VP9…): every seek decodes from the keyframe
+    // before it, seconds of video, so a drag shows the nearest of the frames
+    // made in advance instead and decodes the exact one only on release.
+    // Intra-only sources (ProRes, DNxHR) decode any frame quickly and keep
+    // seeking live, as does the converted file.
+    readonly property bool canSheetScrub: playerMode && hasPicture && !playsOutput && job.scrubSheets > 0
+    property bool sheetScrub: false
+    property real scrubTime: 0
+    // The nearest frame among the sheets ready so far (sheet k holds frames
+    // k, k + sheets, k + 2 × sheets…): {sheet, slot}.
+    function scrubFrame(seconds) {
+        var n = job.scrubFrames, sheets = n / job.scrubPerSheet, ready = job.scrubSheets;
+        var want = Math.max(0, Math.min(n - 1, Math.round(seconds / job.info.duration * n - 0.5)));
+        for (var d = 0; d < sheets; d++)
+            for (var c of [want - d, want + d])
+                if (c >= 0 && c < n && c % sheets < ready)
+                    return { sheet: c % sheets, slot: Math.floor(c / sheets) };
+        return { sheet: 0, slot: 0 };
     }
     // While dragging, at most one seek per tick to the latest spot: every
     // seek decodes from the previous keyframe, and a backlog of them is what
     // makes scrubbing stutter.
     property real pendingSeek: -1
     function scrubTo(seconds) {
+        if (sheetScrub) {
+            scrubTime = seconds;
+            return;
+        }
         if (!scrubTimer.running) {
             seek(seconds);
             scrubTimer.start();
@@ -311,6 +335,46 @@ Dock {
                     horizontalAlignment: Text.AlignHCenter
                 }
             }
+            // A drag's ready-made frame, over everything until the real one
+            // has been decoded after release.
+            Timer {
+                id: landing
+                property real target: 0
+                interval: 1500    // in case the player never reports getting there
+            }
+            Connections {
+                target: player
+                function onPositionChanged() {
+                    if (landing.running && Math.abs(player.position / 1000 - landing.target) < 0.1)
+                        landing.stop();
+                }
+            }
+            Rectangle {
+                readonly property rect area: videoOut.contentRect
+                readonly property var frame: root.sheetScrub || landing.running ? root.scrubFrame(root.sheetScrub ? root.scrubTime : landing.target)
+                                                                               : null
+                visible: frame !== null && job !== null
+                x: area.x
+                y: area.y
+                width: area.width
+                height: area.height
+                color: "black"
+                clip: true
+                Repeater {
+                    model: job ? job.scrubSheets : 0
+                    Image {
+                        required property int index
+                        // All the sheets stay loaded: a new frame only moves one.
+                        visible: parent.frame !== null && parent.frame.sheet === index
+                        source: "file://" + job.scrubPath + index + ".jpg"
+                        height: parent.height
+                        width: parent.width * job.scrubPerSheet
+                        x: parent.frame ? -parent.frame.slot * parent.width : 0
+                        fillMode: Image.Stretch
+                        smooth: true
+                    }
+                }
+            }
             Rectangle {
                 anchors.left: parent.left
                 anchors.bottom: parent.bottom
@@ -327,6 +391,8 @@ Dock {
                     font.pixelSize: 11
                     font.features: { "tnum": 1 }
                     text: {
+                        if (root.sheetScrub)
+                            return "Source · " + Format.precise(root.position);
                         if (!root.showsStill)
                             return (root.playsOutput ? "Output · " : "Source · ") + Format.precise(root.position)
                                    + (root.stillMode && root.playerView === "output" ? " · pause to see the output" : "")
@@ -372,10 +438,24 @@ Dock {
             // Hold still while dragging so the picture follows the mouse, then
             // carry on playing if it was.
             property bool resume: false
-            onScrubStarted: { resume = root.playing; if (resume) player.pause(); }
+            onScrubStarted: {
+                resume = root.playing;
+                if (resume)
+                    player.pause();
+                if (root.canSheetScrub) {
+                    root.scrubTime = player.position / 1000;
+                    root.sheetScrub = true;
+                }
+            }
             onSeek: function (seconds) { root.scrubTo(seconds); }
             onScrubFinished: {
-                // Land exactly where the mouse let go.
+                // Land exactly where the mouse let go: the one real decode.
+                if (root.sheetScrub) {
+                    landing.target = root.scrubTime;
+                    landing.restart();
+                    root.seek(root.scrubTime);
+                    root.sheetScrub = false;
+                }
                 scrubTimer.stop();
                 if (root.pendingSeek >= 0)
                     root.seek(root.pendingSeek);

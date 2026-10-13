@@ -2372,6 +2372,17 @@ private slots:
         QCOMPARE(args.count("-ss"), 20);
         QVERIFY2(args.join(' ').contains("text='10\\:00\\:00\\:05'"), qPrintable(args.join(' ')));    // 0.2 s in: frame 5
 
+        // Long-GOP: frames for scrubbing, all four sheets, each across the
+        // whole file (sheet 1 holds frames 1, 5, 9… of 64).
+        QTRY_COMPARE_WITH_TIMEOUT(job.scrubSheets(), 4, 60000);
+        QCOMPARE(QImage(job.scrubPath() + "1.jpg").width(), 16 * 320);
+        const QStringList sheet1 = frameSheetArguments(job.info(), source, 1, 4, 16, 64, 180, "/c/s.jpg");
+        QCOMPARE(sheet1.count("-ss"), 16);
+        QCOMPARE(sheet1[sheet1.indexOf("-ss") + 1], QString::number(8.0 * 1.5 / 64, 'f', 2));     // frame 1
+        QCOMPARE(sheet1[sheet1.indexOf("-ss", sheet1.indexOf("-ss") + 1) + 1], QString::number(8.0 * 5.5 / 64, 'f', 2)); // frame 5
+        QCOMPARE(sheet1[sheet1.lastIndexOf("-ss") + 1], QString("7.00"));    // frame 61, kept a second clear of the end
+        QVERIFY(!job.info().intraOnly());
+
         QSignalSpy changed(&job, &Job::sheetChanged);
         job.makeContactSheet();
         QCOMPARE(job.sheetState(), QString("making"));
@@ -2415,6 +2426,9 @@ private slots:
         QVERIFY(job.waveform().first().toDouble() > 0.5);    // a steady tone: every slice near the loudest
         QVERIFY(job.info().splitMono());
         QCOMPARE(job.info().timecode, QString("01:00:00:00"));
+        QVERIFY(job.info().intraOnly());    // ProRes: seeks stay live, no scrub frames
+        QTRY_VERIFY_WITH_TIMEOUT(job.hasStrip(), 15000);
+        QCOMPARE(job.scrubSheets(), 0);
 
         QSignalSpy finished(&job, &Job::finished);
         QVERIFY(job.start());

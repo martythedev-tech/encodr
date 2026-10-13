@@ -105,6 +105,15 @@ class Job : public QObject {
     // The first audio track's loudness across the file: 0-1 per slice of the
     // timeline, empty until it's been read (or when there's no audio).
     Q_PROPERTY(QVariantList waveform READ waveform NOTIFY waveformChanged)
+    // Frames for scrubbing a long-GOP source without decoding: scrubFrames
+    // spread evenly across the file, made as kScrubSheets JPEGs at
+    // scrubPath + sheet + ".jpg", ready one after another (scrubSheets so
+    // far). Sheet k holds frames k, k + kScrubSheets, k + 2 × kScrubSheets…
+    // side by side, so each one spans the whole file. None for intra-only.
+    Q_PROPERTY(int scrubSheets READ scrubSheets NOTIFY previewChanged)
+    Q_PROPERTY(int scrubPerSheet READ scrubPerSheet CONSTANT)
+    Q_PROPERTY(int scrubFrames READ scrubFrames CONSTANT)
+    Q_PROPERTY(QString scrubPath READ scrubPath CONSTANT)
     Q_PROPERTY(QString sheetState READ sheetState NOTIFY sheetChanged)
     // The whole-file check: black, freezes, silence, cuts.
     Q_PROPERTY(bool analysing READ analysing NOTIFY analysisChanged)
@@ -226,6 +235,12 @@ public:
     int stripCount() const { return 16; }
     bool hasStrip() const { return m_hasStrip; }
     QVariantList waveform() const { return m_waveform; }
+    static constexpr int kScrubSheets = 4;
+    static constexpr int kScrubPerSheet = 16;
+    int scrubSheets() const { return m_scrubSheets; }
+    int scrubPerSheet() const { return kScrubPerSheet; }
+    int scrubFrames() const { return kScrubSheets * kScrubPerSheet; }
+    QString scrubPath() const { return m_scrubPath; }
     bool analysing() const { return m_analysis; }
     bool analysed() const { return m_analysed; }
     double analysisPercent() const { return m_analysisPercent; }
@@ -347,6 +362,7 @@ private:
     void makePoster(double at);
     void makeStrip();
     void scanWaveform();
+    void makeScrubSheet(int index);
     void makeOutputStill();
     // `pass`: which pass of a fit-to-size run (0 = the run's single pass).
     Command command(const QString &output, bool previews, int pass = 0) const;
@@ -403,6 +419,8 @@ private:
     void detectBars();
     bool m_hasStrip = false;
     QVariantList m_waveform;
+    int m_scrubSheets = 0;
+    QString m_scrubPath;
     QString m_sheetState;
     QString m_sheetHeader;
     double m_posterWanted = -1; // a frame asked for while another was being made

@@ -61,6 +61,7 @@ Job::Job(int id, const QString &inputPath, QObject *parent)
     m_subtitleLink = stem + "-subtitles";
     m_passLog = stem + "-pass";
     m_sheetHeader = stem + "-sheet.txt";
+    m_scrubPath = stem + "-scrub-";
 }
 
 Job::~Job() {
@@ -87,6 +88,8 @@ Job::~Job() {
         QFile::remove(m_subtitleLink + name);
     QFile::remove(m_subtitleLink + "-source." + QFileInfo(m_input).suffix().toLower());
     QFile::remove(m_subtitleLink + "-join.txt");
+    for (int i = 0; i < kScrubSheets; ++i)
+        QFile::remove(m_scrubPath + QString::number(i) + ".jpg");
     removePassLog();
     QFile::remove(m_sheetHeader);
     QFile::remove(m_finishedStill);
@@ -1082,8 +1085,30 @@ void Job::makeStrip() {
         process->deleteLater();
         m_hasStrip = code == 0 && QFileInfo::exists(m_strip);
         emit previewChanged();
+        if (!m_info.intraOnly())
+            makeScrubSheet(0);
     });
     process->start("ffmpeg", stripArguments(m_info, m_input, stripCount(), 72, m_strip));
+}
+
+// One sheet at a time, after the strip: each spans the whole file, so
+// scrubbing has frames everywhere from the first, getting finer with each,
+// and the machine isn't flooded with decoders.
+void Job::makeScrubSheet(int index) {
+    if (index >= kScrubSheets)
+        return;
+    const QString jpeg = m_scrubPath + QString::number(index) + ".jpg";
+    auto *process = new QProcess(this);
+    connect(process, &QProcess::finished, this, [this, process, index, jpeg](int code, QProcess::ExitStatus) {
+        process->deleteLater();
+        if (code != 0 || !QFileInfo::exists(jpeg))
+            return;    // scrubbing carries on decoding, as without sheets
+        m_scrubSheets = index + 1;
+        emit previewChanged();
+        makeScrubSheet(index + 1);
+    });
+    process->start("ffmpeg", frameSheetArguments(m_info, m_input, index, kScrubSheets, kScrubPerSheet,
+                                                 scrubFrames(), 180, jpeg));
 }
 
 // The whole audio is read, but as a small mono stream, in the background:

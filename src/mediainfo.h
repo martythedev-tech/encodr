@@ -65,6 +65,9 @@ struct MediaInfo {
     QList<SubtitleTrack> subtitles;
 
     bool interlaced() const;
+    // Every frame a keyframe (ProRes, DNxHR, MJPEG…): any frame decodes on
+    // its own, so seeking anywhere is quick.
+    bool intraOnly() const;
     // Full-range picture (phones, screen recordings, JPEG-style video).
     bool fullRange() const { return colorRange == "pc" || pixelFormat.startsWith("yuvj"); }
     // Tags the decoder can't convert from: "reserved" stops ffmpeg's scaler cold.

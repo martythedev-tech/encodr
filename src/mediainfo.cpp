@@ -53,6 +53,12 @@ qint64 MediaInfo::estimatedFrames() const {
     return hasVideo && fps > 0 ? qint64(std::llround(duration * fps)) : 0;
 }
 
+bool MediaInfo::intraOnly() const {
+    static const QStringList intra{"prores", "dnxhd", "mjpeg", "rawvideo", "v210", "v410", "cfhd", "huffyuv",
+                                   "ffvhuff", "utvideo", "png", "qtrle", "dvvideo", "jpeg2000"};
+    return intra.contains(videoCodec);
+}
+
 QString MediaInfo::summary() const {
     QStringList parts;
     if (hasVideo)
@@ -89,7 +95,7 @@ QVariantMap MediaInfo::toVariant() const {
         {"videoCodecLong", videoCodecLong}, {"videoProfile", videoProfile},
         {"pixelFormat", pixelFormat}, {"width", width}, {"height", height}, {"fps", fps},
         {"fpsText", fpsText(fps)}, {"fieldOrder", fieldOrder}, {"interlaced", interlaced()},
-        {"bitDepth", bitDepth}, {"videoBitrate", videoBitrate},
+        {"bitDepth", bitDepth}, {"videoBitrate", videoBitrate}, {"intraOnly", intraOnly()},
         {"colorPrimaries", colorPrimaries}, {"colorTransfer", colorTransfer},
         {"colorSpace", colorSpace}, {"frames", estimatedFrames()}, {"audio", tracks},
         {"summary", summary()},
