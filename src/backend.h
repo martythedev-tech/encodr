@@ -2,6 +2,7 @@
 
 #include <QDBusUnixFileDescriptor>
 #include <QDateTime>
+#include <QHash>
 #include <QList>
 #include <QObject>
 #include <QUrl>
@@ -142,6 +143,11 @@ signals:
     void noticeChanged();
     void outputWritten(const QString &path);
 
+private slots:
+    // Old-style slots: QDBusConnection::connect only takes SLOT() strings.
+    void notificationActionInvoked(uint id, const QString &key);
+    void notificationClosed(uint id, uint reason);
+
 private:
     void addJob(const QString &path);
     void startNext();
@@ -150,7 +156,16 @@ private:
     void resolveEngines();
     void setNotice(const QString &text);
     void setInhibit(bool on);
-    void notify(const QString &title, const QString &body);
+    // Actions are (key, label) pairs shown as buttons; each key maps to a
+    // file or folder that clicking it opens. "default" is never a button: it
+    // is what clicking the notification itself does, and servers that show
+    // no buttons (Omarchy 4.0) still run it.
+    struct NotifyAction {
+        QString key;
+        QString label;
+        QString path;
+    };
+    void notify(const QString &title, const QString &body, const QList<NotifyAction> &actions = {});
     void loadConfig();
     void saveConfig() const;
     void savePresets() const;
@@ -170,6 +185,7 @@ private:
     QString m_namePattern;
     bool m_running = false;
     QDBusUnixFileDescriptor m_inhibit;
+    QHash<uint, QHash<QString, QString>> m_notifyActions;   // notification id -> action key -> path
     QString m_notice;
     QList<qint64> m_watchedPids;
     Hardware *m_hardware = nullptr;

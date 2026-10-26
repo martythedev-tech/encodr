@@ -6,6 +6,8 @@
 #include <QClipboard>
 #include <QDBusConnection>
 #include <QDBusInterface>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
 #include <QDBusReply>
 #include <QDesktopServices>
 #include <QDir>
@@ -58,6 +60,13 @@ Backend::Backend(FilePicker *picker, const QString &configDir, Telemetry *teleme
         m_ownsTelemetry = true;
     }
     connect(m_telemetry, &Telemetry::updated, this, &Backend::onTick);
+
+    // Buttons on our notifications come back as signals from the server.
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    bus.connect("org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications",
+                "ActionInvoked", this, SLOT(notificationActionInvoked(uint, QString)));
+    bus.connect("org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications",
+                "NotificationClosed", this, SLOT(notificationClosed(uint, uint)));
 
     if (m_picker) {
         connect(m_picker, &FilePicker::mediaSelected, this, [this](const QList<QUrl> &urls) {
@@ -538,12 +547,19 @@ void Backend::startNext() {
                                 : QString("%1 waiting files can't start. The first: ").arg(blocked)) + why);
     if (wasRunning) {
         int done = 0, failed = 0;
+        QString folder;
         for (Job *job : m_jobs) {
             done += job->state() == "done";
             failed += job->state() == "failed";
+            if (job->state() == "done")
+                folder = job->outputFolder();
         }
+        QList<NotifyAction> actions;
+        if (!folder.isEmpty())
+            actions.append({{"default", "Open folder", folder}, {"folder", "Open folder", folder}});
         if (done + failed > 1)
-            notify("Queue finished", QString("%1 converted%2").arg(done).arg(failed ? QString(", %1 failed").arg(failed) : QString()));
+            notify("Queue finished", QString("%1 converted%2").arg(done).arg(failed ? QString(", %1 failed").arg(failed) : QString()),
+                   actions);
     }
 }
 
@@ -560,7 +576,9 @@ void Backend::onJobFinished(Job *job, bool ok) {
         notify(QString("Converted %1").arg(job->fileName()),
                QString("%1 · %2 · took %3").arg(QFileInfo(job->outputPath()).fileName(),
                                                 QLocale().formattedDataSize(QFileInfo(job->outputPath()).size(), 1, QLocale::DataSizeSIFormat),
-                                                took));
+                                                took),
+               {{"default", "Open", job->outputPath()}, {"open", "Open", job->outputPath()},
+                {"reveal", "Show in folder", job->outputPath()}});
     } else if (job->state() == "failed") {
         notify(QString("Couldn't convert %1").arg(job->fileName()), job->message());
     }
@@ -757,17 +775,41 @@ void Backend::deletePreset(const QString &id) {
     }
 }
 
+// Opens a file or folder in the user's default app. Qt hands this to the
+// desktop portal, and the GTK portal asks "Open With…" for every type it has
+// no remembered choice for, even when mimeapps names a default. Outside a
+// sandbox xdg-open goes straight to that default; the portal stays the way
+// in for Flatpak and Snap, and the fallback where xdg-open is missing.
+static void openPath(const QString &path) {
+    const bool sandboxed = QFileInfo::exists("/.flatpak-info") || qEnvironmentVariableIsSet("SNAP");
+    QProcess open;
+    open.setProgram("xdg-open");
+    open.setArguments({path});
+    // From the AppImage, the app it opens must not inherit the bundle's
+    // libraries and Qt plugins.
+    const QString appDir = qEnvironmentVariable("APPDIR");
+    if (!appDir.isEmpty()) {
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        for (const char *name : {"APPDIR", "APPIMAGE", "ARGV0", "OWD"})
+            env.remove(name);
+        for (const QString &name : env.keys())
+            if (env.value(name).contains(appDir))
+                env.remove(name);
+        open.setProcessEnvironment(env);
+    }
+    if (sandboxed || !open.startDetached())
+        QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+}
+
 void Backend::openOutput(int index) {
     Job *job = jobAt(index);
     if (job && job->state() == "done")
-        QDesktopServices::openUrl(QUrl::fromLocalFile(job->outputPath()));
+        openPath(job->outputPath());
 }
 
-void Backend::revealOutput(int index) {
-    Job *job = jobAt(index);
-    if (!job)
-        return;
-    const QString path = job->state() == "done" ? job->outputPath() : QString();
+// Selects the file in the file manager, or opens its folder where no file
+// manager answers on D-Bus.
+static void revealPath(const QString &path, const QString &folder) {
     if (!path.isEmpty()) {
         QDBusInterface fm("org.freedesktop.FileManager1", "/org/freedesktop/FileManager1",
                           "org.freedesktop.FileManager1", QDBusConnection::sessionBus());
@@ -777,7 +819,14 @@ void Backend::revealOutput(int index) {
                 return;
         }
     }
-    QDesktopServices::openUrl(QUrl::fromLocalFile(job->outputFolder()));
+    openPath(folder);
+}
+
+void Backend::revealOutput(int index) {
+    Job *job = jobAt(index);
+    if (!job)
+        return;
+    revealPath(job->state() == "done" ? job->outputPath() : QString(), job->outputFolder());
 }
 
 void Backend::copyText(const QString &text) {
@@ -823,8 +872,66 @@ void Backend::setInhibit(bool on) {
     }
 }
 
-void Backend::notify(const QString &title, const QString &body) {
-    QProcess::startDetached("notify-send", {"-a", "Encodr", "-i", "encodr", title, body});
+// The icon as a file: some notification servers, Omarchy's among them, show a
+// letter in place of an icon they're only given by name. Looks beside
+// the binary first (the AppImage's usr/share), then the system's data dirs.
+static QString notificationIcon() {
+    static const QString icon = [] {
+        const QString relative = "icons/hicolor/scalable/apps/encodr.svg";
+        const QString bundled = QCoreApplication::applicationDirPath() + "/../share/" + relative;
+        if (QFileInfo::exists(bundled))
+            return QFileInfo(bundled).canonicalFilePath();
+        const QString installed = QStandardPaths::locate(QStandardPaths::GenericDataLocation, relative);
+        return installed.isEmpty() ? QString("encodr") : installed;
+    }();
+    return icon;
+}
+
+void Backend::notify(const QString &title, const QString &body, const QList<NotifyAction> &actions) {
+    QStringList keys;
+    QHash<QString, QString> paths;
+    for (const NotifyAction &action : actions) {
+        keys << action.key << action.label;
+        paths.insert(action.key, action.path);
+    }
+    QDBusMessage call = QDBusMessage::createMethodCall("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+                                                       "org.freedesktop.Notifications", "Notify");
+    // The theme name as the app icon, and the file as image-path, as
+    // notify-send sends them: some servers draw only one of the two.
+    QVariantMap hints{{"desktop-entry", QString("encodr")}};
+    if (notificationIcon().startsWith('/'))
+        hints.insert("image-path", notificationIcon());
+    call << QString("Encodr") << uint(0) << QString("encodr") << title << body << keys << hints << int(-1);
+    auto *watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(call), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, title, body, paths](QDBusPendingCallWatcher *w) {
+        w->deleteLater();
+        QDBusPendingReply<uint> reply = *w;
+        if (reply.isError()) {
+            // No notification server on the bus: notify-send still reaches
+            // one that only listens elsewhere, without buttons.
+            QProcess::startDetached("notify-send", {"-a", "Encodr", "-i", notificationIcon(), title, body});
+            return;
+        }
+        if (!paths.isEmpty())
+            m_notifyActions.insert(reply.value(), paths);
+    });
+}
+
+void Backend::notificationActionInvoked(uint id, const QString &key) {
+    const auto entry = m_notifyActions.constFind(id);
+    if (entry == m_notifyActions.constEnd())
+        return;   // another app's notification
+    const QString path = entry->value(key);
+    if (path.isEmpty())
+        return;
+    if (key == "reveal")
+        revealPath(path, QFileInfo(path).absolutePath());
+    else
+        openPath(path);
+}
+
+void Backend::notificationClosed(uint id, uint) {
+    m_notifyActions.remove(id);
 }
 
 void Backend::loadConfig() {
