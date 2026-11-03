@@ -1722,6 +1722,30 @@ private slots:
         QCOMPARE(hash(archive, "0:v:0"), hash(dir.filePath("src.mov"), "0:v:0"));    // every pixel
         QCOMPARE(hash(archive, "0:a:0"), hash(dir.filePath("src.mov"), "0:a:0"));    // every sample
 
+        // An untagged HD source is labelled Rec. 709 on the way out. ffmpeg 9
+        // took differing output tags as a conversion and changed every
+        // pixel; the frames are labelled first now, so nothing is converted.
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=25:duration=1",
+                              "-c:v", "libx264", "-pix_fmt", "yuv420p", dir.filePath("hd.mp4")});
+        QVERIFY(make.waitForFinished(30000) && make.exitCode() == 0);
+        {
+            Job job(3, dir.filePath("hd.mp4"));
+            job.setPreset(presetNamed("ffv1"));
+            job.setOutputFolder(dir.filePath("out"));
+            job.probe();
+            QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+            QSignalSpy finished(&job, &Job::finished);
+            QVERIFY(job.start());
+            QVERIFY(finished.wait(60000));
+            QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+            QCOMPARE(hash(job.outputPath(), "0:v:0"), hash(dir.filePath("hd.mp4"), "0:v:0"));
+            QProcess tags;
+            tags.start("ffprobe", {"-v", "error", "-select_streams", "v:0", "-show_entries",
+                                   "stream=color_primaries,color_transfer,color_space", "-of", "csv=p=0", job.outputPath()});
+            QVERIFY(tags.waitForFinished(20000));
+            QCOMPARE(QString(tags.readAllStandardOutput()).trimmed(), QString("bt709,bt709,bt709"));
+        }
+
         // A full-range source (phones, screen recordings) stays full range.
         make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=1",
                               "-c:v", "libx264", "-pix_fmt", "yuvj420p", "-color_range", "pc", dir.filePath("phone.mp4")});

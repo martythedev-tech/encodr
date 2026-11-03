@@ -1122,6 +1122,13 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
     }
 
     const bool withAudio = !info.audio.isEmpty() && p.audio != "none" && !firstPass;
+    // The colour labels the output carries. Through a LUT the picture becomes
+    // Rec. 709, whatever the camera's was; untagged sources get the usual
+    // guess for their size.
+    const bool graded = !p.lut.isEmpty() || !p.lutFile.isEmpty();
+    const QString prim = graded ? QString("bt709") : knownTag(info.colorPrimaries) ? info.colorPrimaries : defPrim;
+    const QString trc = graded ? QString("bt709") : knownTag(info.colorTransfer) ? info.colorTransfer : defPrim;
+    const QString space = graded ? QString("bt709") : knownTag(info.colorSpace) ? info.colorSpace : defPrim;
     QStringList graph;
     // Clips that differ come out of the join as one picture and one sound.
     const QString videoIn = p.joinsByFilter() ? "[jv]" : "[0:v:0]";
@@ -1141,6 +1148,12 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
     }
     if (withVideo && !copyVideo) {
         QStringList chain = videoChain(p, info, start, cmd.notes);
+        // Label the frames with the output's colour tags before the last
+        // format step. ffmpeg 9 treats output tags that differ from the
+        // frames' as a conversion: an untagged source tagged Rec. 709 on the
+        // way out had every pixel run through a matrix change (FFV1 stopped
+        // being lossless). setparams only labels; nothing is converted.
+        chain << QString("setparams=color_primaries=%1:color_trc=%2:colorspace=%3").arg(prim, trc, space);
         chain << "format=" + (p.video == "ffv1" ? ffv1PixelFormat(info) : pixelFormatFor(p));
         // VA-API encodes from GPU memory: only the encoder's branch is
         // uploaded, so the preview frames stay ordinary pictures.
@@ -1242,11 +1255,6 @@ Command buildCommand(const Preset &p, const MediaInfo &info, const QString &inpu
         cmd.notes << "Video copied as it is, not re-encoded";
     } else if (withVideo) {
         a << "-map" << "[v]";
-        // Through a LUT the picture becomes Rec. 709, whatever the camera's was.
-        const bool graded = !p.lut.isEmpty() || !p.lutFile.isEmpty();
-        const QString prim = graded ? QString("bt709") : knownTag(info.colorPrimaries) ? info.colorPrimaries : defPrim;
-        const QString trc = graded ? QString("bt709") : knownTag(info.colorTransfer) ? info.colorTransfer : defPrim;
-        const QString space = graded ? QString("bt709") : knownTag(info.colorSpace) ? info.colorSpace : defPrim;
         if (gpu) {
             const bool hevc = p.video == "hevc";
             const QString encoder = (hevc ? "hevc_" : "h264_") + p.hardware;
