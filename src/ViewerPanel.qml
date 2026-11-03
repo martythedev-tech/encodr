@@ -52,6 +52,8 @@ Dock {
     // While a drag shows ready-made frames, the playhead is where the mouse is.
     readonly property real position: sheetScrub ? scrubTime : player.position / 1000
     readonly property bool playing: player.playbackState === MediaPlayer.PlayingState
+    // The player has opened this file and drawn its first frame.
+    readonly property bool playerShowsFrame: player.hasVideo && player.opened !== "" && player.opened === player.source
     readonly property real frameStep: job && job.info.fps > 0 ? 1 / job.info.fps : 0.04
     // The player before a finished run, with something to process.
     readonly property bool stillMode: playerMode && !done && hasPicture && job.canShowOutput
@@ -226,7 +228,10 @@ Dock {
                         FrameView {
                             id: frame
                             anchors.fill: parent
-                            visible: modelData !== "player" || !root.playsOutput
+                            // Under the player only until its first frame: the smooth-scaled
+                            // poster (another moment of the file) reaches a pixel past the
+                            // player's picture and showed as a coloured edge on dark frames.
+                            visible: modelData !== "player" || (!root.playsOutput && !root.playerShowsFrame)
                             // Until the run writes processed frames, both views show the source poster.
                             path: !job ? "" : modelData === "output" && root.live ? job.previewOut : job.previewSource
                             stamp: job ? job.previewStamp : 0
