@@ -143,7 +143,7 @@ QHash<int, QByteArray> Browser::roleNames() const {
     return {{NameRole, "name"}, {PathRole, "path"}, {UrlRole, "url"}, {IsDirRole, "isDir"}, {IsMediaRole, "isMedia"},
             {IsAudioRole, "isAudio"}, {SizeRole, "size"}, {ModifiedRole, "modified"}, {ThumbRole, "thumb"},
             {DurationRole, "duration"}, {DetailsRole, "details"}, {ConvertedRole, "converted"},
-            {ConvertedNameRole, "convertedName"}, {ReadRole, "read"}};
+            {ConvertedNameRole, "convertedName"}, {ReadRole, "read"}, {FromRole, "from"}};
 }
 
 QVariant Browser::data(const QModelIndex &index, int role) const {
@@ -164,6 +164,7 @@ QVariant Browser::data(const QModelIndex &index, int role) const {
     case DetailsRole: return e.details;
     case ConvertedRole: return !e.converted.isEmpty();
     case ConvertedNameRole: return e.converted;
+    case FromRole: return e.from;
     case ReadRole: return e.read;
     }
     return {};
@@ -244,6 +245,7 @@ void Browser::list() {
     QDir dir(m_path);
     const QFileInfoList infos = dir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Readable);
     QVector<Entry> fresh;
+    int hidden = 0;
     for (const QFileInfo &fi : infos) {
         if (fi.fileName().startsWith('.'))
             continue;
@@ -253,6 +255,10 @@ void Browser::list() {
         e.isDir = fi.isDir();
         e.isMedia = !e.isDir && isMediaFile(e.name);
         e.isAudio = e.isMedia && isAudioFile(e.name);
+        if (!m_showAll && !e.isDir && !e.isMedia) {
+            ++hidden;
+            continue;
+        }
         e.size = e.isDir ? 0 : fi.size();
         e.modified = fi.lastModified().toMSecsSinceEpoch();
         if (e.isMedia) {
@@ -261,9 +267,15 @@ void Browser::list() {
         }
         fresh.append(e);
     }
-    std::sort(fresh.begin(), fresh.end(), [](const Entry &a, const Entry &b) {
+    m_hidden = hidden;
+    const QString by = m_sortBy;
+    std::sort(fresh.begin(), fresh.end(), [by](const Entry &a, const Entry &b) {
         if (a.isDir != b.isDir)
             return a.isDir;
+        if (!a.isDir && by == "date" && a.modified != b.modified)
+            return a.modified > b.modified;
+        if (!a.isDir && by == "size" && a.size != b.size)
+            return a.size > b.size;
         // By name without the extension, so an original sits just above its
         // converted copies (clip.mov, then clip_review.mp4).
         const int byStem = naturalCompare(QFileInfo(a.name).completeBaseName(), QFileInfo(b.name).completeBaseName());
@@ -313,6 +325,9 @@ void Browser::markConverted() {
     for (const QString &folder : std::as_const(m_outputFolders))
         elsewhere << (QDir(folder) == QDir(m_path) ? QStringList() : QDir(folder).entryList(QDir::Files));
     const QStringList patterns = m_patterns.isEmpty() ? QStringList{naming::kDefault} : m_patterns;
+    // For each file Encodr made here, the original it came from. If two
+    // originals could have made it, the longer name is the closer match.
+    QHash<QString, QString> from;
     for (int i = 0; i < m_entries.size(); ++i) {
         Entry &e = m_entries[i];
         if (!e.isMedia)
@@ -323,8 +338,11 @@ void Browser::markConverted() {
             const QRegularExpression output = naming::matcher(pattern, base, m_suffixes);
             for (const QString &name : std::as_const(here))
                 if (name != e.name && output.match(name).hasMatch()) {
-                    found = name;
-                    break;
+                    if (found.isEmpty())
+                        found = name;
+                    const QString &was = from[name];
+                    if (was.isEmpty() || QFileInfo(was).completeBaseName().size() < base.size())
+                        from[name] = e.name;
                 }
             for (qsizetype f = 0; found.isEmpty() && f < elsewhere.size(); ++f)
                 for (const QString &name : std::as_const(elsewhere[f]))
@@ -332,14 +350,39 @@ void Browser::markConverted() {
                         found = name;
                         break;
                     }
-            if (!found.isEmpty())
-                break;
         }
         if (found != e.converted) {
             e.converted = found;
             emit dataChanged(index(i), index(i), {ConvertedRole, ConvertedNameRole});
         }
     }
+    for (int i = 0; i < m_entries.size(); ++i) {
+        Entry &e = m_entries[i];
+        const QString source = e.isMedia ? from.value(e.name) : QString();
+        if (source != e.from) {
+            e.from = source;
+            emit dataChanged(index(i), index(i), {FromRole});
+        }
+    }
+}
+
+void Browser::setShowAll(bool on) {
+    if (on == m_showAll)
+        return;
+    m_showAll = on;
+    emit viewChanged();
+    if (!m_path.isEmpty())
+        list();
+}
+
+void Browser::setSortBy(const QString &by) {
+    const QString clean = by == "date" || by == "size" ? by : QString("name");
+    if (clean == m_sortBy)
+        return;
+    m_sortBy = clean;
+    emit viewChanged();
+    if (!m_path.isEmpty())
+        list();
 }
 
 void Browser::pump() {

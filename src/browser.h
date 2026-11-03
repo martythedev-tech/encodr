@@ -21,11 +21,18 @@ class Browser : public QAbstractListModel {
     Q_PROPERTY(QVariantList places READ places NOTIFY placesChanged)
     Q_PROPERTY(int mediaCount READ mediaCount NOTIFY countsChanged)
     Q_PROPERTY(int pending READ pending NOTIFY countsChanged)
+    // Files that are neither folders nor media are left out unless shown.
+    Q_PROPERTY(bool showAll READ showAll WRITE setShowAll NOTIFY viewChanged)
+    Q_PROPERTY(int hiddenCount READ hiddenCount NOTIFY countsChanged)
+    // "name" (outputs right under their original), "date" (newest first) or
+    // "size" (largest first); folders always come first.
+    Q_PROPERTY(QString sortBy READ sortBy WRITE setSortBy NOTIFY viewChanged)
 
 public:
     enum Role {
         NameRole = Qt::UserRole + 1, PathRole, UrlRole, IsDirRole, IsMediaRole, IsAudioRole, SizeRole,
-        ModifiedRole, ThumbRole, DurationRole, DetailsRole, ConvertedRole, ConvertedNameRole, ReadRole
+        ModifiedRole, ThumbRole, DurationRole, DetailsRole, ConvertedRole, ConvertedNameRole, ReadRole,
+        FromRole    // for a file Encodr made: the original it was made from
     };
 
     // `cacheDir` holds thumbnails and details; `mountsFile` lists mounted
@@ -43,6 +50,11 @@ public:
     QVariantList places() const { return m_places; }
     int mediaCount() const;
     int pending() const { return m_queue.size() + m_running; }
+    bool showAll() const { return m_showAll; }
+    void setShowAll(bool on);
+    int hiddenCount() const { return m_hidden; }
+    QString sortBy() const { return m_sortBy; }
+    void setSortBy(const QString &by);
 
     Q_INVOKABLE void open(const QString &path);
     Q_INVOKABLE void up();
@@ -63,6 +75,7 @@ signals:
     void pathChanged();
     void placesChanged();
     void countsChanged();
+    void viewChanged();
 
 private:
     struct Entry {
@@ -78,6 +91,7 @@ private:
         double duration = 0;
         QString details;
         QString converted;
+        QString from;
         bool read = false;
     };
 
@@ -104,4 +118,7 @@ private:
     QQueue<QPair<QString, QString>> m_queue;   // key, path
     QSet<QString> m_queued;
     int m_running = 0;
+    bool m_showAll = true;
+    int m_hidden = 0;
+    QString m_sortBy = "name";
 };

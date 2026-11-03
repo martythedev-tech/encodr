@@ -781,6 +781,62 @@ private slots:
         QCOMPARE(browser.path(), QFileInfo(dir.path()).absolutePath());
     }
 
+    // The list view's helpers: where each output came from, other files
+    // tucked away, and sorting by size or date with folders still first.
+    void browserFromNotesFilterAndSort() {
+        QTemporaryDir dir, cache;
+        QDir(dir.path()).mkdir("Card");
+        writeFile(dir.filePath("clip.mov"), "original");
+        writeFile(dir.filePath("clip_review.mp4"), "a review copy, made from clip.mov");
+        writeFile(dir.filePath("clip_1080p_001.mp4"), "made under a naming pattern");
+        writeFile(dir.filePath("clip_review_1080p_001.mp4"), "made from the review copy, the longer name");
+        writeFile(dir.filePath("other.mp4"), "unrelated, and the largest file here by far.......");
+        writeFile(dir.filePath("notes.txt"), "not media");
+        const QDateTime old = QDateTime::currentDateTime().addDays(-3);
+        for (const QString &name : {"clip.mov", "clip_review.mp4", "clip_1080p_001.mp4", "clip_review_1080p_001.mp4"}) {
+            QFile f(dir.filePath(name));
+            QVERIFY(f.open(QIODevice::ReadWrite));
+            QVERIFY(f.setFileTime(old, QFileDevice::FileModificationTime));
+        }
+        writeFile(cache.filePath("mounts"), "/dev/sda1 / ext4 rw 0 0\n");
+        Browser browser(cache.filePath("thumbs"), cache.filePath("mounts"));
+        browser.setOutputSuffixes({"_review"});
+        browser.setOutputPatterns({naming::kDefault, "{name}_{height}p_{n}"});
+        browser.open(dir.path());
+
+        auto row = [&](const QString &name) {
+            for (int i = 0; i < browser.rowCount(); ++i)
+                if (browser.data(browser.index(i), Browser::NameRole).toString() == name)
+                    return i;
+            return -1;
+        };
+        auto from = [&](const QString &name) { return browser.data(browser.index(row(name)), Browser::FromRole).toString(); };
+        QCOMPARE(from("clip.mov"), QString());
+        QCOMPARE(from("clip_review.mp4"), QString("clip.mov"));
+        QCOMPARE(from("clip_1080p_001.mp4"), QString("clip.mov"));
+        QCOMPARE(from("clip_review_1080p_001.mp4"), QString("clip_review.mp4"));
+        QCOMPARE(from("other.mp4"), QString());
+
+        // Everything shows by default; the panel tucks other files away.
+        QVERIFY(row("notes.txt") >= 0);
+        QCOMPARE(browser.hiddenCount(), 0);
+        browser.setShowAll(false);
+        QCOMPARE(row("notes.txt"), -1);
+        QCOMPARE(browser.hiddenCount(), 1);
+        QCOMPARE(browser.rowCount(), 6);    // the folder and five media files
+        QCOMPARE(from("clip_review.mp4"), QString("clip.mov"));
+
+        browser.setSortBy("size");
+        QCOMPARE(browser.data(browser.index(0), Browser::NameRole).toString(), QString("Card"));
+        QCOMPARE(browser.data(browser.index(1), Browser::NameRole).toString(), QString("other.mp4"));
+        QCOMPARE(browser.data(browser.index(5), Browser::NameRole).toString(), QString("clip.mov"));
+        browser.setSortBy("date");
+        QCOMPARE(browser.data(browser.index(1), Browser::NameRole).toString(), QString("other.mp4"));    // newest
+        browser.setSortBy("nonsense");
+        QCOMPARE(browser.sortBy(), QString("name"));
+        QCOMPARE(row("clip.mov") + 1, row("clip_1080p_001.mp4"));    // outputs right under their original
+    }
+
     void browserPlacesIncludeDrives() {
         QTemporaryDir cache;
         writeFile(cache.filePath("mounts"),
