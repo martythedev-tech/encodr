@@ -747,7 +747,8 @@ private slots:
         // Details and a thumbnail arrive in the background, and are cached.
         QTRY_VERIFY_WITH_TIMEOUT(at(2, Browser::ReadRole).toBool(), 20000);
         QCOMPARE(at(2, Browser::DetailsRole).toString(), QString("0:03 · 320×180 · MPEG4 · 25p"));
-        QVERIFY(QFileInfo::exists(QUrl(at(2, Browser::ThumbRole).toString()).toLocalFile()));
+        // The thumbnail can land a moment after the details (slow CI runners).
+        QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(QUrl(at(2, Browser::ThumbRole).toString()).toLocalFile()), 20000);
         QTRY_VERIFY_WITH_TIMEOUT(at(3, Browser::ReadRole).toBool(), 20000);
         QCOMPARE(at(3, Browser::DetailsRole).toString(), QString("Can't read this file"));
         QTRY_COMPARE_WITH_TIMEOUT(browser.pending(), 0, 5000);
