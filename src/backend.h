@@ -184,6 +184,10 @@ private:
     QString m_outputFolder;
     QString m_namePattern;
     bool m_running = false;
+    // What this run of the queue has finished (for "Queue finished").
+    int m_runDone = 0;
+    int m_runFailed = 0;
+    QString m_runFolder;
     QDBusUnixFileDescriptor m_inhibit;
     QHash<uint, QHash<QString, QString>> m_notifyActions;   // notification id -> action key -> path
     QString m_notice;

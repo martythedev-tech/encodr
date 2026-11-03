@@ -497,6 +497,11 @@ void Backend::startQueue() {
                                    : "Nothing is waiting. Retry a file (R) or add more.");
         return;
     }
+    if (!m_running) {
+        m_runDone = 0;
+        m_runFailed = 0;
+        m_runFolder.clear();
+    }
     m_running = true;
     setInhibit(true);
     emit queueChanged();
@@ -548,14 +553,10 @@ void Backend::startNext() {
         setNotice((blocked == 1 ? QString("A waiting file can't start: ")
                                 : QString("%1 waiting files can't start. The first: ").arg(blocked)) + why);
     if (wasRunning) {
-        int done = 0, failed = 0;
-        QString folder;
-        for (Job *job : m_jobs) {
-            done += job->state() == "done";
-            failed += job->state() == "failed";
-            if (job->state() == "done")
-                folder = job->outputFolder();
-        }
+        // Only what this run converted: files finished in an earlier run are
+        // still listed, and a Start where nothing could run converted nothing.
+        const int done = m_runDone, failed = m_runFailed;
+        const QString folder = m_runFolder;
         QList<NotifyAction> actions;
         if (!folder.isEmpty())
             actions.append({{"default", "Open folder", folder}, {"folder", "Open folder", folder}});
@@ -566,6 +567,14 @@ void Backend::startNext() {
 }
 
 void Backend::onJobFinished(Job *job, bool ok) {
+    if (m_running) {
+        if (ok) {
+            ++m_runDone;
+            m_runFolder = job->outputFolder();
+        } else if (job->state() == "failed") {
+            ++m_runFailed;
+        }
+    }
     if (ok)
         emit outputWritten(job->outputPath());
     if (ok && m_checkAfter)
