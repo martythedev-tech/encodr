@@ -2,6 +2,7 @@
 #include <QImage>
 #include <QFile>
 #include <QProcess>
+#include <QPointer>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -1165,6 +1166,18 @@ private slots:
         QCOMPARE(backend.jobAt(0)->fileName(), QString("a.wav"));
         backend.redo();
         QCOMPARE(backend.jobAt(0)->fileName(), QString("b.wav"));
+
+        // Undo puts a job back in the queue; removing another one afterwards
+        // must not delete it (it was freed while still listed, and crashed).
+        backend.undo();
+        QPointer<Job> restored = backend.jobAt(0);
+        QCOMPARE(restored->fileName(), QString("a.wav"));
+        backend.removeJob(1);
+        QVERIFY(!restored.isNull());
+        QCOMPARE(backend.jobs().size(), 1);
+        QCOMPARE(backend.jobAt(0)->fileName(), QString("a.wav"));
+        backend.clearFinished();
+        QVERIFY(!restored.isNull());
     }
 
     // The whole path: probe a real file, convert it, and land the result

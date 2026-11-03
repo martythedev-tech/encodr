@@ -102,7 +102,9 @@ Backend::Backend(FilePicker *picker, const QString &configDir, Telemetry *teleme
 
 Backend::~Backend() {
     setInhibit(false);
-    for (const auto &r : m_undo + m_redo)
+    // Removed jobs waiting for an undo; everything in the queue (redo
+    // entries included) is a child of this object and goes with it.
+    for (const auto &r : m_undo)
         delete r.job;
 }
 
@@ -621,8 +623,8 @@ void Backend::removeJob(int index) {
         return;
     m_jobs.removeAt(index);
     m_undo.append({job, index});
-    for (const auto &r : m_redo)
-        delete r.job;
+    // Redo entries are jobs an undo put back: they are still in the queue,
+    // so forgetting them must not delete them.
     m_redo.clear();
     while (m_undo.size() > 30)
         delete m_undo.takeFirst().job;
