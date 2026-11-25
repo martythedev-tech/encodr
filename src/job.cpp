@@ -676,12 +676,16 @@ void Job::probe() {
         emit infoChanged();
         emit presetChanged();
         emit trimChanged();    // the out point defaults to the end, now known
+        if (!m_extras)
+            return;
         makePoster(m_info.duration * 0.1);
         makeStrip();
         scanWaveform();
         scanLevels(0);
     });
     process->start("ffprobe", {"-v", "error", "-print_format", "json", "-show_format", "-show_streams", m_input});
+    if (!m_extras)
+        return;
 
     auto *report = new QProcess(this);
     connect(report, &QProcess::errorOccurred, this, [this, report](QProcess::ProcessError error) {
@@ -1293,7 +1297,7 @@ void Job::encode() {
     linkSubtitles();
     if (m_pass == 0 && runPreset().twoPass())
         m_pass = 1;
-    const Command command = this->command(partialPathFor(m_finalPath), true, m_pass);
+    const Command command = this->command(partialPathFor(m_finalPath), m_extras, m_pass);
     if (m_pass != 1) {
         m_runNotes = command.notes;
         if (!m_fallbackNote.isEmpty())

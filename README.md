@@ -177,6 +177,25 @@ below; and the source details beside live stats. The layout is remembered.
 | ? | Shortcuts |
 | Q | Quit (asks first while converting) |
 
+## Command line (and agents)
+
+The same conversions without the window, for scripts and AI agents. It uses
+the window's presets, output folder, naming and GPU choice, and needs no
+display, so it works over SSH.
+
+```bash
+encodr presets                                   # the presets, yours included
+encodr probe clip.mov                            # what the file is, and what to know first
+encodr convert *.mov --preset review --check     # convert, then check the quality
+encodr convert talk.mp4 --preset share --trim 0:30-5:00 --crop 9:16 --dry-run
+encodr guide                                     # everything, with examples
+```
+
+Add `--json` for machine-readable output (`convert` writes one event per
+line). The full guide is [docs/cli.md](docs/cli.md) (`encodr guide` prints
+it). For Claude Code, opencode and other agents that read skills, copy
+[docs/SKILL.md](docs/SKILL.md) to `~/.claude/skills/encodr/SKILL.md`.
+
 ## Install
 
 On Omarchy (or any Arch-based system), download the package for your machine

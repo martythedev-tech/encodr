@@ -966,6 +966,8 @@ void Backend::loadConfig() {
 }
 
 void Backend::saveConfig() const {
+    if (m_readOnly)
+        return;
     writeJson(m_configDir + "/settings.json", QJsonObject{
         {"defaultPreset", m_defaultPreset}, {"outputMode", m_outputMode}, {"outputFolder", m_outputFolder},
         {"namePattern", m_namePattern},
@@ -973,6 +975,8 @@ void Backend::saveConfig() const {
 }
 
 void Backend::savePresets() const {
+    if (m_readOnly)
+        return;
     QJsonArray list;
     for (const auto &p : m_userPresets) {
         QVariantMap map = p.toVariant();

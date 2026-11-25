@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/">
+        <file alias="cli-guide.md">../docs/cli.md</file>
         <file alias="Main.qml">Main.qml</file>
         <file alias="SourcePane.qml">SourcePane.qml</file>
         <file alias="SettingsPane.qml">SettingsPane.qml</file>

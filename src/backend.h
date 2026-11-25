@@ -88,6 +88,10 @@ public:
     int effectiveParallel() const { return m_parallel > 0 ? m_parallel : autoParallel(); }
     // The encoder a job would run on now, and its VA-API device.
     QPair<QString, QString> engineFor(const Preset &preset) const;
+    // Settings changes stay in memory: nothing is written to the config
+    // folder. The command line uses this, so its options never change the
+    // window's saved settings or presets.
+    void setReadOnly(bool on) { m_readOnly = on; }
     int doneCount() const;
     double queuePercent() const;
     double queueRemaining() const;
@@ -195,6 +199,7 @@ private:
     Hardware *m_hardware = nullptr;
     int m_fileFor = -1;         // the job id a file is being chosen for
     bool m_gpuEnabled = false;
+    bool m_readOnly = false;
     bool m_checkAfter = false;
     int m_parallel = 0;
 

@@ -335,6 +335,14 @@ public:
     // The preset as it will actually run, with the encoder filled in.
     Preset runPreset() const;
     void probe();
+    // Off for the command line: no poster, thumbnail strip, waveform, scrub
+    // frames, mediainfo report or live preview frames, which only the
+    // window shows. On by default.
+    void setExtras(bool on) { m_extras = on; }
+    // Reads each audio track's level (silent and very quiet tracks show up
+    // in issues()); levelsScanned turns true when done. probe() does it
+    // itself when extras are on.
+    void scanAudioLevels() { scanLevels(0); }
     bool start();
     void pause();
     void resume();
@@ -394,6 +402,7 @@ private:
     QString m_message;
     MediaInfo m_info;
     bool m_levelsScanned = false;
+    bool m_extras = true;
     QString m_mediainfo;
     Preset m_preset;
     QString m_outputFolder;

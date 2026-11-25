@@ -17,6 +17,7 @@
 #include <QUrl>
 
 #include "appmenu.h"
+#include "cli.h"
 #include "backend.h"
 #include "browser.h"
 #include "naming.h"
@@ -25,7 +26,16 @@
 #include "portalfilepicker.h"
 #include "theme.h"
 
+namespace {
+const QString kVersion = QStringLiteral("1.2.1");
+}
+
 int main(int argc, char *argv[]) {
+    // encodr presets / probe / convert / guide: the command line, with no
+    // window and no display needed.
+    if (cli::wanted(argc, argv))
+        return cli::run(argc, argv, kVersion);
+
     // The player's FFmpeg talks a lot (stream dumps, VDPAU probing); keep the
     // terminal for Encodr's own messages unless someone asks for it.
     if (!qEnvironmentVariableIsSet("QT_LOGGING_RULES"))
@@ -45,7 +55,7 @@ int main(int argc, char *argv[]) {
     app.setApplicationName("encodr");
     app.setOrganizationName("encodr");    // ~/.config/encodr/encodr.conf holds the layout
     app.setApplicationDisplayName("Encodr");
-    app.setApplicationVersion("1.2.1");
+    app.setApplicationVersion(kVersion);
 
     // Matches the window to encodr.desktop, so the compositor (Wayland app_id)
     // and the launcher pick up the installed icon.
@@ -62,10 +72,12 @@ int main(int argc, char *argv[]) {
         qputenv("PATH", (here + ":" + qEnvironmentVariable("PATH")).toLocal8Bit());
 
     QCommandLineParser parser;
-    parser.setApplicationDescription("Convert video and audio files with ffmpeg.");
     parser.addHelpOption();
     parser.addVersionOption();
     parser.addPositionalArgument("files", "Files or folders to add to the queue.", "[files...]");
+    parser.setApplicationDescription("Convert video and audio files with ffmpeg.\n\n"
+                                     "Command line (no window): encodr presets | probe | convert | guide.\n"
+                                     "encodr guide explains them, with examples.");
     parser.process(app);
 
     // Material's compact variant: its stock controls are sized for touch

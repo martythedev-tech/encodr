@@ -20,6 +20,7 @@
 #include "analysis.h"
 #include "naming.h"
 #include "quality.h"
+#include "cli.h"
 
 #include <atomic>
 #include <thread>
@@ -1512,6 +1513,59 @@ private slots:
         QCOMPARE(job.padMode(), QString("9:16"));
         job.setPadMode("off");
         QVERIFY(!job.runPreset().pads());
+    }
+
+    // The command line's parsing: times, trims and --set.
+    void cliParses() {
+        QCOMPARE(cli::parseTime("90"), 90.0);
+        QCOMPARE(cli::parseTime("90.5"), 90.5);
+        QCOMPARE(cli::parseTime("1:30"), 90.0);
+        QCOMPARE(cli::parseTime("1:02:03.5"), 3723.5);
+        QCOMPARE(cli::parseTime("1:75"), -1.0);       // seconds past 59
+        QCOMPARE(cli::parseTime("1:60:00"), -1.0);    // minutes past 59
+        QCOMPARE(cli::parseTime("abc"), -1.0);
+        QCOMPARE(cli::parseTime(""), -1.0);
+
+        QCOMPARE(cli::parseTrim("10-20"), qMakePair(10.0, 20.0));
+        QCOMPARE(cli::parseTrim("1:30-2:45"), qMakePair(90.0, 165.0));
+        QCOMPARE(cli::parseTrim("1:30-"), qMakePair(90.0, 0.0));    // to the end
+        QCOMPARE(cli::parseTrim("-0:40"), qMakePair(0.0, 40.0));    // from the start
+        QCOMPARE(cli::parseTrim("20-10"), qMakePair(-1.0, -1.0));
+        QCOMPARE(cli::parseTrim("-"), qMakePair(-1.0, -1.0));
+        QCOMPARE(cli::parseTrim("30"), qMakePair(-1.0, -1.0));
+
+        QVariantMap p = presetNamed("review").toVariant();
+        QVERIFY(cli::applySettings(p, {"crf=22", "container=mkv", "deinterlace=false", "watermark=DRAFT"}).isEmpty());
+        QCOMPARE(p.value("crf").toInt(), 22);
+        QCOMPARE(p.value("container").toString(), QString("mkv"));
+        QCOMPARE(p.value("deinterlace").toBool(), false);
+        QCOMPARE(p.value("watermark").toString(), QString("DRAFT"));
+        QCOMPARE(Preset::fromVariant(p).crf, 22);
+        QVERIFY(cli::applySettings(p, {"video=h265"}).contains("copy, h264, hevc"));
+        QVERIFY(cli::applySettings(p, {"crf=abc"}).contains("whole number"));
+        QVERIFY(cli::applySettings(p, {"crf=-1"}).contains("whole number"));
+        QVERIFY(cli::applySettings(p, {"deinterlace=yes"}).contains("true or false"));
+        QVERIFY(cli::applySettings(p, {"colour=red"}).contains("no setting"));
+        QVERIFY(cli::applySettings(p, {"crf"}).contains("key=value"));
+        QVERIFY(cli::applySettings(p, {"lut=/no/such.cube"}).contains("No file"));
+        QCOMPARE(p.value("crf").toInt(), 22);    // a refused value changes nothing
+    }
+
+    // The command line changes settings in memory only: the window's saved
+    // settings stay as they were.
+    void readOnlyBackendWritesNothing() {
+        QTemporaryDir config;
+        {
+            Backend backend(nullptr, config.path());
+            backend.setReadOnly(true);
+            backend.setGpuEnabled(true);
+            backend.setNamePattern("{name}_{n}");
+            QVERIFY(backend.gpuEnabled());
+        }
+        QVERIFY(!QFile::exists(config.filePath("settings.json")));
+        QVERIFY(!QFile::exists(config.filePath("presets.json")));
+        Backend backend(nullptr, config.path());
+        QVERIFY(!backend.gpuEnabled());
     }
 
     void qualityParsesAndPlans() {
