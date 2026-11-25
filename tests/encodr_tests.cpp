@@ -1564,8 +1564,10 @@ private slots:
         QString joined = quality::measureArguments(quality::Tool::LibVmaf, p, source, "/x/in.mov", 10, 20, "/y/out.mp4", out,
                                                    "/c/q.json", 8, 2).join(' ');
         QVERIFY2(joined.contains("-ss 10.000 -i /x/in.mov -t 20.000 -i /y/out.mp4"), qPrintable(joined));
-        QVERIFY2(joined.contains("[0:v:0]crop=1280:640:0:40[ref];[ref]setpts=PTS-STARTPTS,fps=25/1,scale=1280:640:flags=bicubic,"
-                                 "format=yuv420p[r];[1:v:0]setpts=PTS-STARTPTS,fps=25/1,format=yuv420p[d];"
+        // The same colour tags on both sides, so ffmpeg converts neither.
+        const QString tags = "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709,";
+        QVERIFY2(joined.contains("[0:v:0]crop=1280:640:0:40[ref];[ref]" + tags + "setpts=PTS-STARTPTS,fps=25/1,scale=1280:640:flags=bicubic,"
+                                 "format=yuv420p[r];[1:v:0]" + tags + "setpts=PTS-STARTPTS,fps=25/1,format=yuv420p[d];"
                                  "[d][r]libvmaf=log_fmt=json:log_path=/c/q.json:n_threads=8:n_subsample=2"), qPrintable(joined));
         QVERIFY(joined.endsWith("-map [q] -f null -"));
         if (!quality::modelPath(640).isEmpty())
@@ -1673,6 +1675,57 @@ private slots:
         job.showFinishedAt(1.0);
         QVERIFY(still.wait(20000));
         QCOMPARE(QImage(job.finishedStill()).size(), QSize(320, 140));
+    }
+
+    // An HD copy is labelled BT.709 and an untagged source isn't. In one
+    // filter graph ffmpeg used to convert one to the other's colours before
+    // comparing, so a copy the vmaf tool rated 97 scored 55 through libvmaf.
+    // Every tool here must rate this copy highly, and the two VMAF routes
+    // must agree.
+    void qualityIgnoresColourTags() {
+        if (!hasTool("ffmpeg") || !hasTool("ffprobe"))
+            QSKIP("ffmpeg is not installed");
+        QTemporaryDir dir;
+        QProcess make;
+        make.start("ffmpeg", {"-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=25:duration=2",
+                              "-c:v", "libx264", "-crf", "4", "-pix_fmt", "yuv420p", "-an", dir.filePath("src.mp4")});
+        QVERIFY(make.waitForFinished(30000));
+        QCOMPARE(make.exitCode(), 0);
+
+        Job job(1, dir.filePath("src.mp4"));
+        Preset p = presetNamed("review");
+        p.speed = "ultrafast";
+        job.setPreset(p);
+        job.setOutputFolder(dir.filePath("out"));
+        job.probe();
+        QTRY_VERIFY_WITH_TIMEOUT(job.state() == "ready", 15000);
+        QSignalSpy finished(&job, &Job::finished);
+        QVERIFY(job.start());
+        QVERIFY(finished.wait(60000));
+        QVERIFY2(finished.first().first().toBool(), qPrintable(job.message()));
+
+        QStringList tools{"ssim"};
+        QProcess filters;
+        filters.start("ffmpeg", {"-hide_banner", "-filters"});
+        filters.waitForFinished(10000);
+        if (filters.readAllStandardOutput().contains(" libvmaf "))
+            tools << "libvmaf";
+        if (hasTool("vmaf"))
+            tools << "vmaf";
+        QHash<QString, double> means;
+        for (const QString &tool : tools) {
+            qputenv("ENCODR_QUALITY_TOOL", tool.toUtf8());
+            job.checkQuality();
+            QTRY_VERIFY_WITH_TIMEOUT(job.qualityState() != "checking", 60000);
+            QVERIFY2(job.qualityState() == "done", qPrintable(tool + ": " + job.qualityStep()));
+            means[tool] = job.quality().value("mean").toDouble();
+            QVERIFY2(means[tool] > (tool == "ssim" ? 95 : 90), qPrintable(tool + " " + QString::number(means[tool])));
+        }
+        qunsetenv("ENCODR_QUALITY_TOOL");
+        if (means.contains("libvmaf") && means.contains("vmaf"))
+            QVERIFY2(std::abs(means["libvmaf"] - means["vmaf"]) < 1,
+                     qPrintable(QString("libvmaf %1, vmaf tool %2").arg(means["libvmaf"]).arg(means["vmaf"])));
+        qInfo() << means;
     }
 
     void av1AndFfv1() {

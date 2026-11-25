@@ -17,15 +17,24 @@ QString rate(const MediaInfo &info) {
                                                                     : info.fpsRational;
 }
 
+// The same colour tags on both pictures. The copy is labelled (BT.709,
+// say) and an untagged source isn't; in one filter graph ffmpeg then
+// converts one to the other's colours before comparing, and the score
+// measures that conversion instead of the encoder (a 1080p HEVC copy at VMAF
+// 97 scored 55). The y4m pipes to the vmaf tool carry no tags, so it never
+// saw this. Only labels change, never pixels; the range is left alone, so a
+// full-range source is still brought to a limited-range copy's levels.
+const QString kSameTags = "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709";
+
 // Both pictures from zero, at the output's rate (a variable-rate source
 // lines up with its constant-rate copy), the reference sized to the output.
 QString referenceNormal(const MediaInfo &out) {
-    return QString("setpts=PTS-STARTPTS,fps=%1,scale=%2:%3:flags=bicubic,format=%4")
-        .arg(rate(out)).arg(out.width).arg(out.height).arg(comparisonFormat(out));
+    return QString("%1,setpts=PTS-STARTPTS,fps=%2,scale=%3:%4:flags=bicubic,format=%5")
+        .arg(kSameTags, rate(out)).arg(out.width).arg(out.height).arg(comparisonFormat(out));
 }
 
 QString outputNormal(const MediaInfo &out) {
-    return QString("setpts=PTS-STARTPTS,fps=%1,format=%2").arg(rate(out), comparisonFormat(out));
+    return QString("%1,setpts=PTS-STARTPTS,fps=%2,format=%3").arg(kSameTags, rate(out), comparisonFormat(out));
 }
 
 const QStringList kModelDirs{"/usr/share/model", "/usr/share/vmaf/model", "/usr/local/share/model",
