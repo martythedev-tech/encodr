@@ -1546,6 +1546,10 @@ private slots:
         QCOMPARE(quality::subsampleFor(1000), 1);
         QCOMPARE(quality::subsampleFor(172800), 9);    // two hours at 24 fps
         QCOMPARE(quality::parseStreamHashes("0,a,MD5=abc\n1,a,MD5=def\n"), (QStringList{"abc", "def"}));
+        // ffmpeg 9.1: streamhash version 2.
+        QCOMPARE(quality::parseStreamHashes("#format: stream checksums\n#version: 2\n#hash: MD5\n#tb 0: 1/48000\n"
+                                            "#stream#, size, hash\n0,      576000, abc\n1,      576000, def\n"),
+                 (QStringList{"abc", "def"}));
 
         // The reference is the source through the same processing as the copy.
         const MediaInfo source = parseProbe(kKiPro, "/x/in.mov");    // 1280×720

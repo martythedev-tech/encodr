@@ -253,11 +253,22 @@ QStringList audioHashArguments(const QString &file, const QList<int> &tracks) {
 }
 
 QStringList parseStreamHashes(const QByteArray &output) {
+    // ffmpeg up to 9.0 writes "0,a,MD5=<hash>"; 9.1 (streamhash version 2)
+    // writes "#" header lines, then "0,      <size>, <hash>". Only audio
+    // streams are mapped, so every stream line is a track.
     QStringList hashes;
-    for (const QByteArray &line : output.split('\n')) {
+    for (const QByteArray &raw : output.split('\n')) {
+        const QByteArray line = raw.trimmed();
+        if (line.isEmpty() || line.startsWith('#'))
+            continue;
         const int eq = line.indexOf('=');
-        if (line.contains(",a,") && eq > 0)
+        if (line.contains(",a,") && eq > 0) {
             hashes << QString::fromUtf8(line.mid(eq + 1)).trimmed();
+        } else {
+            const QList<QByteArray> fields = line.split(',');
+            if (fields.size() == 3)
+                hashes << QString::fromUtf8(fields.last()).trimmed();
+        }
     }
     return hashes;
 }
