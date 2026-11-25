@@ -50,7 +50,9 @@ jobs:
       - name: Install build and test dependencies
         run: |
           grep -q '^DisableSandbox' /etc/pacman.conf || sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
-          pacman -Syuu --noconfirm --needed git qt6-base qt6-declarative qt6-svg qt6-wayland qt6-multimedia qt6-multimedia-ffmpeg ffmpeg xdg-desktop-portal libnotify ttf-dejavu
+          # Arch split OpenSSL 3 out as openssl-3; moving the image back to
+          # Omarchy's mirror hands its two libraries back to the older openssl.
+          pacman -Syuu --noconfirm --needed --overwrite /usr/lib/libcrypto.so.3 --overwrite /usr/lib/libssl.so.3 git qt6-base qt6-declarative qt6-svg qt6-wayland qt6-multimedia qt6-multimedia-ffmpeg ffmpeg xdg-desktop-portal libnotify ttf-dejavu
           pacman -Q qt6-base
 
       - uses: actions/checkout@v4
