@@ -213,6 +213,18 @@ jobs:
           test -s clip_review.mp4
           squashfs-root/usr/bin/ffprobe -v error -show_entries stream=codec_name -of csv=p=0 clip_review.mp4
 
+      # The command line, with no display at all (no QT_QPA_PLATFORM).
+      - name: Convert on the command line
+        run: |
+          HOME="$PWD/home" squashfs-root/AppRun presets --json > presets.json
+          grep -q '"review"' presets.json
+          HOME="$PWD/home" squashfs-root/AppRun probe clip.mov --json | grep -q '"ok": true'
+          HOME="$PWD/home" squashfs-root/AppRun convert clip.mov --preset share --out cli-out --check --json | tee cli.log
+          grep -q '"event":"done".*"ok":true' cli.log
+          test -s cli-out/clip_share.mp4
+          if HOME="$PWD/home" squashfs-root/AppRun convert clip.mov --preset nope; then exit 1; else test $? -eq 2; fi
+          HOME="$PWD/home" squashfs-root/AppRun guide | grep -q "Encodr on the command line"
+
       # A real window on a real (virtual) X server with software OpenGL, which
       # offscreen never exercises: this is where missing plugins show up.
       - name: Open a window on X11
