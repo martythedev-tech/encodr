@@ -195,6 +195,10 @@ Add `--json` for machine-readable output (`convert` writes one event per
 line). The full guide is [docs/cli.md](docs/cli.md) (`encodr guide` prints
 it). For Claude Code, opencode and other agents that read skills, copy
 [docs/SKILL.md](docs/SKILL.md) to `~/.claude/skills/encodr/SKILL.md`.
+Smaller local models can skip skills and write ffmpeg commands themselves;
+a line in the agent's always-loaded instructions fixes that (for opencode,
+`~/.config/opencode/AGENTS.md`: "For video and audio, use `encodr`; run
+`encodr guide` first").
 
 ## Install
 
