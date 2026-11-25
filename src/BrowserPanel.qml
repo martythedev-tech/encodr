@@ -194,10 +194,16 @@ Dock {
                 readonly property bool picked: root.selected === path
                 // A file Encodr made: dimmed, with the original it came from.
                 readonly property bool isOutput: from !== ""
+                // Hover for the whole row, buttons included. MouseArea's
+                // containsMouse goes false while the pointer is on the Add
+                // button, which hid the button, which brought the hover back:
+                // the button blinked under a resting pointer.
+                readonly property bool hot: rowHover.hovered
+                HoverHandler { id: rowHover }
 
                 width: list.width
                 height: root.listView ? (isOutput && root.narrow ? 38 : 26) : isMedia ? 52 : 28
-                color: picked ? theme.raised : mouse.containsMouse ? theme.hover : "transparent"
+                color: picked ? theme.raised : row.hot ? theme.hover : "transparent"
 
                 // Dragged out as a file, so it can be dropped on the queue (or another app).
                 Item {
@@ -265,14 +271,14 @@ Dock {
                         Layout.maximumWidth: row.width * 0.34
                     }
                     Text {
-                        visible: row.isMedia && !row.isOutput && !(mouse.containsMouse)
+                        visible: row.isMedia && !row.isOutput && !(row.hot)
                         text: row.read ? Format.duration(row.duration) : "…"
                         color: theme.dim
                         font.pixelSize: 11
                         font.features: { "tnum": 1 }
                     }
                     Text {
-                        visible: !row.isDir && list.width > 300 && !(row.isMedia && mouse.containsMouse)
+                        visible: !row.isDir && list.width > 300 && !(row.isMedia && row.hot)
                         text: Format.bytes(row.size)
                         color: theme.dim
                         font.pixelSize: 11
@@ -281,20 +287,20 @@ Dock {
                         Layout.preferredWidth: 52
                     }
                     Icon {
-                        visible: row.converted && !(mouse.containsMouse && row.isMedia)
+                        visible: row.converted && !(row.hot && row.isMedia)
                         name: "check"
                         color: theme.good
                         size: 12
                     }
                     UiButton {
-                        visible: row.isMedia && mouse.containsMouse
+                        visible: row.isMedia && row.hot
                         text: "Add"
                         implicitHeight: 20
                         onClicked: root.add(row.url)
                     }
                 }
                 // The whole story on hover: details, and what it was made from or into.
-                ToolTip.visible: root.listView && mouse.containsMouse && row.isMedia && row.read
+                ToolTip.visible: root.listView && row.hot && row.isMedia && row.read
                 ToolTip.delay: 700
                 ToolTip.text: row.details + (row.isOutput ? "\nMade from " + row.from : "")
                               + (row.converted ? "\nAlready converted: " + row.convertedName : "")
@@ -355,7 +361,7 @@ Dock {
                     }
 
                     Icon {
-                        visible: row.converted && !(mouse.containsMouse && row.isMedia)
+                        visible: row.converted && !(row.hot && row.isMedia)
                         name: "check"
                         color: theme.good
                         size: 13
@@ -364,7 +370,7 @@ Dock {
                         MouseArea { id: checkMouse; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.NoButton }
                     }
                     UiButton {
-                        visible: row.isMedia && mouse.containsMouse
+                        visible: row.isMedia && row.hot
                         text: "Add"
                         implicitHeight: 22
                         onClicked: root.add(row.url)
