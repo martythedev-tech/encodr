@@ -551,7 +551,14 @@ QString applySettings(QVariantMap &preset, const QStringList &pairs) {
 }
 
 bool wanted(int argc, char *argv[]) {
-    return argc > 1 && kCommands.contains(QString::fromLocal8Bit(argv[1]));
+    if (argc < 2)
+        return false;
+    const QString first = QString::fromLocal8Bit(argv[1]);
+    // --version and --help alone are answered here too: the window's own
+    // parser comes after the window's application, which aborts without a
+    // display (over SSH, say), and agents check the version first.
+    return kCommands.contains(first)
+           || (argc == 2 && (first == "--version" || first == "-v" || first == "--help" || first == "-h"));
 }
 
 int run(int argc, char *argv[], const QString &version) {
@@ -569,6 +576,23 @@ int run(int argc, char *argv[], const QString &version) {
 
     QStringList args = app.arguments();
     const QString command = args.takeAt(1);
+    if (command == "--version" || command == "-v") {
+        out() << "encodr " << version << "\n";
+        return 0;
+    }
+    if (command == "--help" || command == "-h") {
+        out() << "Usage: encodr [files...]\n"
+                 "Convert video and audio files with ffmpeg. With files (or none), opens the window.\n\n"
+                 "Command line (no window, no display needed):\n"
+                 "  encodr presets                 the presets, yours included\n"
+                 "  encodr probe FILE...           what a file is, and what to know first\n"
+                 "  encodr convert FILE... [opts]  convert (encodr convert --help for the options)\n"
+                 "  encodr guide                   everything, with examples\n\n"
+                 "Options:\n"
+                 "  -h, --help     This help.\n"
+                 "  -v, --version  The version.\n";
+        return 0;
+    }
     if (command == "guide") {
         out() << guide();
         return 0;

@@ -216,6 +216,8 @@ jobs:
       # The command line, with no display at all (no QT_QPA_PLATFORM).
       - name: Convert on the command line
         run: |
+          HOME="$PWD/home" squashfs-root/AppRun --version | grep -q "^encodr [0-9]"
+          HOME="$PWD/home" squashfs-root/AppRun --help | grep -q "encodr convert"
           HOME="$PWD/home" squashfs-root/AppRun presets --json > presets.json
           grep -q '"review"' presets.json
           HOME="$PWD/home" squashfs-root/AppRun probe clip.mov --json | grep -q '"ok": true'
