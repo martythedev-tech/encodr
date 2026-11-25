@@ -1515,6 +1515,22 @@ private slots:
         QVERIFY(!job.runPreset().pads());
     }
 
+    // Notification text: bodies are markup to the server, so names are
+    // escaped; errors come down to one short line.
+    void notificationText() {
+        QCOMPARE(notification::escapeBody("Tom & Jerry <b>cut</b>.mov · 12 MB"),
+                 QString("Tom &amp; Jerry &lt;b&gt;cut&lt;/b&gt;.mov · 12 MB"));
+        QCOMPARE(notification::shortReason("\n  Invalid data found when processing input\nmore detail\n"),
+                 QString("Invalid data found when processing input"));
+        const QString longLine(300, 'x');
+        const QString cut = notification::shortReason(longLine, 140);
+        QCOMPARE(cut.size(), 140);
+        QVERIFY(cut.endsWith("…"));
+        QCOMPARE(notification::shortReason(""), QString());
+        QCOMPARE(notification::shortReason("[vost#0:0/libx264 @ 0x55d1] [enc:libx264 @ 0x55d2] Could not open encoder before EOF"),
+                 QString("Could not open encoder before EOF"));
+    }
+
     // The command line's parsing: times, trims and --set.
     void cliParses() {
         QCOMPARE(cli::parseTime("90"), 90.0);

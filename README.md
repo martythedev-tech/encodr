@@ -127,7 +127,9 @@ below; and the source details beside live stats. The layout is remembered.
   AMD, Intel).
 - **Pause and resume** a conversion exactly where it is. Sleep and lid-close
   suspend are blocked while converting (not while paused, so a paused job can
-  wait through sleep), and a notification says when it's done.
+  wait through sleep), and a notification says when it's done: one for a
+  single file, with a frame of it; for a queue, one at the end, plus one for
+  each file that failed.
 - **Safe with your files.** Originals are never touched. Output is written to a
   hidden partial file and renamed only when it's complete, so a failed or
   stopped conversion leaves nothing behind. Existing files are never overwritten.

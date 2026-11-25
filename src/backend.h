@@ -15,6 +15,17 @@
 
 class FilePicker;
 
+// Notification text, kept to Omarchy's card: a short fixed title, details in
+// one line of the body.
+namespace notification {
+// The body is markup to notification servers: a file name with & or < in it
+// is escaped so it shows as written.
+QString escapeBody(const QString &text);
+// The first line of an error, without ffmpeg's leading [component @ 0x…]
+// tags, at most `limit` characters (then "…").
+QString shortReason(const QString &message, int limit = 140);
+}
+
 class Backend : public QObject {
     Q_OBJECT
     Q_PROPERTY(QList<QObject *> jobs READ jobs NOTIFY jobsChanged)
@@ -169,7 +180,13 @@ private:
         QString label;
         QString path;
     };
-    void notify(const QString &title, const QString &body, const QList<NotifyAction> &actions = {});
+    // `image`: a picture for the notification (a frame of the converted
+    // file); Encodr's icon when empty.
+    void notify(const QString &title, const QString &body, const QList<NotifyAction> &actions = {},
+                const QString &image = {});
+    // Whether `job` shares this run with other files: then only its failure,
+    // and the run's summary, are worth a notification.
+    bool inQueue(const Job *job) const;
     void loadConfig();
     void saveConfig() const;
     void savePresets() const;

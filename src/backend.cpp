@@ -579,19 +579,42 @@ void Backend::onJobFinished(Job *job, bool ok) {
         emit outputWritten(job->outputPath());
     if (ok && m_checkAfter)
         job->checkQuality();
-    if (ok) {
+    // Like Omarchy's own (Screen recording saved): a short fixed title, the
+    // details in one line, a frame of the file. In a queue only failures get
+    // their own; the summary covers the rest.
+    if (ok && !inQueue(job)) {
         const int seconds = int(job->elapsed() + 0.5);
         const QString took = seconds >= 3600 ? QString("%1 h %2 min").arg(seconds / 3600).arg(seconds % 3600 / 60)
                            : seconds >= 60   ? QString("%1 min %2 s").arg(seconds / 60).arg(seconds % 60)
                                              : QString("%1 s").arg(seconds);
-        notify(QString("Converted %1").arg(job->fileName()),
-               QString("%1 · %2 · took %3").arg(QFileInfo(job->outputPath()).fileName(),
-                                                QLocale().formattedDataSize(QFileInfo(job->outputPath()).size(), 1, QLocale::DataSizeSIFormat),
-                                                took),
-               {{"default", "Open", job->outputPath()}, {"open", "Open", job->outputPath()},
-                {"reveal", "Show in folder", job->outputPath()}});
+        const QString output = job->outputPath();
+        const QString body = QString("%1 · %2 · took %3").arg(QFileInfo(output).fileName(),
+                                                             QLocale().formattedDataSize(QFileInfo(output).size(), 1, QLocale::DataSizeSIFormat),
+                                                             took);
+        const QList<NotifyAction> actions{{"default", "Open", output}, {"open", "Open", output},
+                                          {"reveal", "Show in folder", output}};
+        if (!job->presetValue().audioOnly() && job->info().hasVideo) {
+            // A frame from a tenth of the way in, 320 wide, as the recording's.
+            QString frame = job->previewSource();
+            frame.replace("-source.jpg", "-notify.jpg");
+            auto *still = new QProcess(this);
+            connect(still, &QProcess::finished, this, [this, still, frame, body, actions](int code, QProcess::ExitStatus) {
+                still->deleteLater();
+                notify("Converted", body, actions, code == 0 && QFileInfo(frame).size() > 0 ? frame : QString());
+            });
+            connect(still, &QProcess::errorOccurred, this, [this, still, body, actions](QProcess::ProcessError e) {
+                if (e != QProcess::FailedToStart)
+                    return;
+                still->deleteLater();
+                notify("Converted", body, actions);
+            });
+            still->start("ffmpeg", {"-nostdin", "-loglevel", "error", "-y", "-ss", QString::number(job->length() * 0.1, 'f', 2),
+                                    "-i", output, "-frames:v", "1", "-vf", "scale='min(320,iw)':-2", frame});
+        } else {
+            notify("Converted", body, actions);
+        }
     } else if (job->state() == "failed") {
-        notify(QString("Couldn't convert %1").arg(job->fileName()), job->message());
+        notify("Couldn't convert", job->fileName() + ": " + notification::shortReason(job->message()));
     }
     emit queueChanged();
     if (m_running)
@@ -898,7 +921,39 @@ static QString notificationIcon() {
     return icon;
 }
 
-void Backend::notify(const QString &title, const QString &body, const QList<NotifyAction> &actions) {
+namespace notification {
+QString escapeBody(const QString &text) {
+    return text.toHtmlEscaped();
+}
+
+QString shortReason(const QString &message, int limit) {
+    QString line;
+    for (const QString &l : message.split('\n')) {
+        if (!l.trimmed().isEmpty()) {
+            line = l.trimmed();
+            break;
+        }
+    }
+    // ffmpeg's "[vost#0:0/libx264 @ 0x55…] [enc:libx264 @ 0x55…] " says
+    // where inside ffmpeg; the words after it say what went wrong.
+    static const QRegularExpression tags("^(\\[[^\\]]*\\]\\s*)+");
+    line.remove(tags);
+    return line.size() > limit ? line.left(limit - 1).trimmed() + "…" : line;
+}
+}
+
+bool Backend::inQueue(const Job *job) const {
+    if (m_runDone + m_runFailed > 1)
+        return true;
+    for (const Job *other : m_jobs)
+        if (other != job && (other->isActive() || (m_running && (other->isWaiting() || other->state() == "probing"))))
+            return true;
+    return false;
+}
+
+void Backend::notify(const QString &title, const QString &rawBody, const QList<NotifyAction> &actions,
+                     const QString &image) {
+    const QString body = notification::escapeBody(rawBody);
     QStringList keys;
     QHash<QString, QString> paths;
     for (const NotifyAction &action : actions) {
@@ -910,7 +965,9 @@ void Backend::notify(const QString &title, const QString &body, const QList<Noti
     // The theme name as the app icon, and the file as image-path, as
     // notify-send sends them: some servers draw only one of the two.
     QVariantMap hints{{"desktop-entry", QString("encodr")}};
-    if (notificationIcon().startsWith('/'))
+    if (!image.isEmpty())
+        hints.insert("image-path", image);
+    else if (notificationIcon().startsWith('/'))
         hints.insert("image-path", notificationIcon());
     call << QString("Encodr") << uint(0) << QString("encodr") << title << body << keys << hints << int(-1);
     auto *watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(call), this);
