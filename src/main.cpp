@@ -27,7 +27,7 @@
 #include "theme.h"
 
 namespace {
-const QString kVersion = QStringLiteral("1.2.1");
+const QString kVersion = QStringLiteral("1.3.0");
 }
 
 int main(int argc, char *argv[]) {
